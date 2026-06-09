@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 	"sync/atomic"
 
 	"github.com/creack/pty"
@@ -206,10 +207,21 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
-	s.mu.Lock()
-	ptmx := s.ptmx
-	s.mu.Unlock()
-
+	// Wait up to 10s for the PTY to be ready (claim starts it in a goroutine).
+	var ptmx *os.File
+	for i := 0; i < 100; i++ {
+		s.mu.Lock()
+		ptmx = s.ptmx
+		s.mu.Unlock()
+		if ptmx != nil {
+			break
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 	if ptmx == nil {
 		conn.Close(websocket.StatusNormalClosure, "not yet claimed")
 		return
