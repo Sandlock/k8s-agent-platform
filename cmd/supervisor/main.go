@@ -74,12 +74,6 @@ func (s *supervisor) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.AnthropicKey == "" {
-		s.claimed.Store(false)
-		http.Error(w, "anthropicKey is required", http.StatusBadRequest)
-		return
-	}
-
 	go func() {
 		if err := s.launch(req); err != nil {
 			log.Printf("launch error: %v", err)
@@ -122,7 +116,10 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 
 	harness := harnessCmd(req, workDir)
 	// Key goes into child env only — never argv, never disk.
-	harness.Env = append(os.Environ(), "ANTHROPIC_API_KEY="+req.AnthropicKey)
+	harness.Env = os.Environ()
+	if req.AnthropicKey != "" {
+		harness.Env = append(harness.Env, "ANTHROPIC_API_KEY="+req.AnthropicKey)
+	}
 
 	ptmx, err := pty.Start(harness)
 	if err != nil {
