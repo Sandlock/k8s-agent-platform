@@ -30,7 +30,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
 # Install claude-code globally
 RUN npm install -g @anthropic-ai/claude-code
 
-COPY --from=build /supervisor /supervisor
+# Run as a non-root user so claude --dangerously-skip-permissions works.
+RUN useradd -m -u 1000 -s /bin/bash sandlock
+USER sandlock
+WORKDIR /home/sandlock
+
+COPY --from=build --chown=sandlock:sandlock /supervisor /supervisor
 
 # Supervisor listens on 8080 (control) and 8081 (terminal).
 EXPOSE 8080 8081

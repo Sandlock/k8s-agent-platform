@@ -128,6 +128,7 @@ func (r *SandboxReconciler) buildPod(sb *sandlockv1alpha1.Sandbox) *corev1.Pod {
 		}
 	}
 
+	uid := int64(1000)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sb.Name,
@@ -139,6 +140,10 @@ func (r *SandboxReconciler) buildPod(sb *sandlockv1alpha1.Sandbox) *corev1.Pod {
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser:    &uid,
+				RunAsNonRoot: func(b bool) *bool { return &b }(true),
+			},
 			Containers: []corev1.Container{
 				{
 					Name:  "supervisor",

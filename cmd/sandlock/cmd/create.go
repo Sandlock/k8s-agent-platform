@@ -68,9 +68,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Sandbox created: %s\n", result.SandboxID)
-	fmt.Printf("Attach URL:      %s\n", result.AttachURL)
-	fmt.Printf("\nOpen the attach URL in a browser to connect, or run:\n")
-	fmt.Printf("  sandlock attach %s\n", result.SandboxID)
-	return nil
+	fmt.Fprintf(os.Stderr, "Sandbox %s ready — connecting...\n", result.SandboxID)
+	return attach(result.SandboxID, server, token)
 }
