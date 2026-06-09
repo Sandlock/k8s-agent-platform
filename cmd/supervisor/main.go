@@ -155,7 +155,7 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 		// Use bash to launch claude so the shebang/PATH is handled correctly.
 		// Direct exec of the claude symlink fails because the kernel can't
 		// exec the Node.js bundle without a shell to interpret the shebang.
-		cmd = exec.Command("/bin/bash", "-lc", "claude --dangerously-skip-permissions")
+		cmd = exec.Command("/usr/bin/bash", "-lc", "claude --dangerously-skip-permissions")
 	default:
 		cmd = exec.Command(req.Harness)
 	}
