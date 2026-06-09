@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 	"sync/atomic"
@@ -153,32 +152,10 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
 	case "claude-code":
-		// Search common install paths since the supervisor process may not
-		// have a full PATH env (Kubernetes launches it directly, no shell).
-		claudePath := ""
-		for _, p := range []string{
-			"/usr/bin/claude",
-			"/usr/local/bin/claude",
-			"/usr/lib/node_modules/.bin/claude",
-			"/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
-			"/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
-		} {
-			if _, err := os.Stat(p); err == nil {
-				claudePath = p
-				break
-			}
-		}
-		if claudePath == "" {
-			// Last resort: ask the shell to find it.
-			out, err := exec.Command("bash", "-lc", "which claude").Output()
-			if err == nil {
-				claudePath = strings.TrimSpace(string(out))
-			}
-		}
-		if claudePath == "" {
-			claudePath = "/usr/bin/claude"
-		}
-		cmd = exec.Command(claudePath, "--dangerously-skip-permissions")
+		// Use bash to launch claude so the shebang/PATH is handled correctly.
+		// Direct exec of the claude symlink fails because the kernel can't
+		// exec the Node.js bundle without a shell to interpret the shebang.
+		cmd = exec.Command("/bin/bash", "-lc", "claude --dangerously-skip-permissions")
 	default:
 		cmd = exec.Command(req.Harness)
 	}
