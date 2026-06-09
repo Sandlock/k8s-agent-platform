@@ -70,6 +70,14 @@ func (r *SandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: 2e9}, nil // 2s
 	}
 
+	// Session ended — delete the Sandbox CR. The pod and service are GC'd via owner references.
+	if desired == sandlockv1alpha1.PhaseRecycling || desired == sandlockv1alpha1.PhaseFailed {
+		log.Info("session ended, deleting sandbox", "phase", desired)
+		if err := r.Delete(ctx, &sb); err != nil && !errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 
