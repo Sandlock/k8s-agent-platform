@@ -27,21 +27,18 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install claude via official install script
+# Install claude globally as root so it lands in /usr/local/bin
+RUN npm install -g @anthropic-ai/claude-code
 
 COPY --from=build /supervisor /supervisor
 RUN chmod +x /supervisor
+
+RUN claude --version
 
 # Drop to non-root after all installs are done.
 # Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000.
 USER ubuntu
 WORKDIR /home/ubuntu
-
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
-ENV PATH="~/.local/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
-
-RUN claude --version
 
 EXPOSE 8080 8081
 ENTRYPOINT ["/supervisor"]
