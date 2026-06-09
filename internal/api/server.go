@@ -2,6 +2,7 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
 	"sync"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sandlock/k8s-agent-platform/internal/pool"
 	"github.com/sandlock/k8s-agent-platform/internal/provider"
+	webui "github.com/sandlock/k8s-agent-platform/web"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -46,6 +48,17 @@ func (s *Server) Handler() http.Handler {
 	// Health probes.
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	// Web dashboard — serve embedded web/dist, fallback to index.html for SPA routing.
+	distFS, _ := fs.Sub(webui.Dist, "dist")
+	fileServer := http.FileServer(http.FS(distFS))
+	r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
+		// Serve the file if it exists, otherwise fall back to index.html.
+		if _, err := distFS.Open(req.URL.Path[1:]); err != nil {
+			req.URL.Path = "/"
+		}
+		fileServer.ServeHTTP(w, req)
+	})
 
 	// Auth endpoints — no session required.
 	r.Post("/v1/auth/register", s.register)

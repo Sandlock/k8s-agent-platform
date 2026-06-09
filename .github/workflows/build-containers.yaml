@@ -30,8 +30,8 @@ jobs:
             dockerfile: build/Dockerfile.operator
             build-args: BINARY=operator
           - image: controlplane
-            dockerfile: build/Dockerfile.operator
-            build-args: BINARY=controlplane
+            dockerfile: build/Dockerfile.controlplane
+            build-args: ""
 
     steps:
       - name: Checkout
