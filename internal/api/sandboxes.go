@@ -299,11 +299,13 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 	}
 	defer pod.CloseNow()
 
-	ctx := r.Context()
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
 	cn := websocket.NetConn(ctx, client, websocket.MessageBinary)
 	pn := websocket.NetConn(ctx, pod, websocket.MessageBinary)
 
-	done := make(chan struct{}, 1)
+	// pod → client: when pod closes, cancel ctx so cn.Read unblocks below.
 	go func() {
 		buf := make([]byte, 32<<10)
 		for {
@@ -312,11 +314,13 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 				cn.Write(buf[:n])
 			}
 			if err != nil {
-				break
+				cancel()
+				return
 			}
 		}
-		done <- struct{}{}
 	}()
+
+	// client → pod
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := cn.Read(buf)
@@ -324,10 +328,9 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 			pn.Write(buf[:n])
 		}
 		if err != nil {
-			break
+			return
 		}
 	}
-	<-done
 }
 
 // lookupSandbox returns the sandbox record as any (DB row map or memStore record).
