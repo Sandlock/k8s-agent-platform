@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -41,6 +42,13 @@ type supervisor struct {
 }
 
 func main() {
+	// Log the resolved claude path at startup for debugging.
+	for _, p := range []string{"/usr/bin/claude", "/usr/local/bin/claude"} {
+		if info, err := os.Stat(p); err == nil {
+			log.Printf("found claude at %s (size=%d)", p, info.Size())
+		}
+	}
+
 	sup := &supervisor{}
 
 	go sup.serveTerminal()
@@ -144,18 +152,30 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
 	case "claude-code":
-		claudePath, err := exec.LookPath("claude")
-		if err != nil {
-			// Fallback to known install locations.
-			for _, p := range []string{"/usr/bin/claude", "/usr/local/bin/claude"} {
-				if _, err2 := os.Stat(p); err2 == nil {
-					claudePath = p
-					break
-				}
+		// Search common install paths since the supervisor process may not
+		// have a full PATH env (Kubernetes launches it directly, no shell).
+		claudePath := ""
+		for _, p := range []string{
+			"/usr/bin/claude",
+			"/usr/local/bin/claude",
+			"/usr/lib/node_modules/.bin/claude",
+			"/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+			"/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+		} {
+			if _, err := os.Stat(p); err == nil {
+				claudePath = p
+				break
 			}
 		}
 		if claudePath == "" {
-			claudePath = "claude"
+			// Last resort: ask the shell to find it.
+			out, err := exec.Command("bash", "-lc", "which claude").Output()
+			if err == nil {
+				claudePath = strings.TrimSpace(string(out))
+			}
+		}
+		if claudePath == "" {
+			claudePath = "/usr/bin/claude"
 		}
 		cmd = exec.Command(claudePath, "--dangerously-skip-permissions")
 	default:
