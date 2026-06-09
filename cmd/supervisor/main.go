@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 	"sync/atomic"
@@ -41,14 +42,32 @@ type supervisor struct {
 	mu      sync.Mutex
 }
 
-func main() {
-	// Log the resolved claude path at startup for debugging.
-	for _, p := range []string{"/usr/bin/claude", "/usr/local/bin/claude"} {
-		if info, err := os.Stat(p); err == nil {
-			log.Printf("found claude at %s (size=%d)", p, info.Size())
+// claudeArgs returns the command + args to launch claude code.
+// We exec node directly to avoid needing a shell.
+func claudeArgs() []string {
+	// Resolve the symlink to get the real JS entry point.
+	link := "/usr/bin/claude"
+	real, err := os.Readlink(link)
+	if err == nil {
+		if !filepath.IsAbs(real) {
+			real = filepath.Join(filepath.Dir(link), real)
 		}
+		real = filepath.Clean(real)
+	} else {
+		// Fallback: known npm global install path.
+		real = "/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
 	}
+	log.Printf("claude entry point: %s", real)
 
+	node := "/usr/bin/node"
+	if _, err := os.Stat(node); err != nil {
+		node = "/usr/local/bin/node"
+	}
+	log.Printf("node binary: %s", node)
+	return []string{node, real, "--dangerously-skip-permissions"}
+}
+
+func main() {
 	sup := &supervisor{}
 
 	go sup.serveTerminal()
@@ -152,10 +171,8 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
 	case "claude-code":
-		// Use bash to launch claude so the shebang/PATH is handled correctly.
-		// Direct exec of the claude symlink fails because the kernel can't
-		// exec the Node.js bundle without a shell to interpret the shebang.
-		cmd = exec.Command("/usr/bin/bash", "-lc", "claude --dangerously-skip-permissions")
+		args := claudeArgs()
+		cmd = exec.Command(args[0], args[1:]...)
 	default:
 		cmd = exec.Command(req.Harness)
 	}
