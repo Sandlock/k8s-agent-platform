@@ -16,10 +16,6 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM ubuntu:24.04
 
-# Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000 — use it.
-USER ubuntu
-WORKDIR /home/ubuntu
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -31,18 +27,21 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install claude via official install script then find where it landed
-RUN curl -fsSL https://claude.ai/install.sh | bash; \
-    find /root /home /usr/local /usr/bin -name "claude" -type f 2>/dev/null; \
-    find /root /home -name "claude" 2>/dev/null
+# Install claude via official install script
+
+COPY --from=build /supervisor /supervisor
+RUN chmod +x /supervisor
+
+# Drop to non-root after all installs are done.
+# Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000.
+USER ubuntu
+WORKDIR /home/ubuntu
+
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 ENV PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 RUN claude --version
 
-COPY --from=build --chown=ubuntu:ubuntu /supervisor /supervisor
-
-# Supervisor listens on 8080 (control) and 8081 (terminal).
 EXPOSE 8080 8081
-
 ENTRYPOINT ["/supervisor"]
