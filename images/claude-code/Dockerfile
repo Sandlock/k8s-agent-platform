@@ -30,6 +30,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
 # Install claude-code globally
 RUN npm install -g @anthropic-ai/claude-code
 
+ENV PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
+# Verify claude is accessible
+RUN claude --version || true
+
 # Run as a non-root user so claude --dangerously-skip-permissions works.
 RUN useradd -m -u 1000 -s /bin/bash sandlock
 USER sandlock

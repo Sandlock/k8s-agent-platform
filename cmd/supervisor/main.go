@@ -144,7 +144,20 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
 	case "claude-code":
-		cmd = exec.Command("/usr/local/bin/claude", "--dangerously-skip-permissions")
+		claudePath, err := exec.LookPath("claude")
+		if err != nil {
+			// Fallback to known install locations.
+			for _, p := range []string{"/usr/bin/claude", "/usr/local/bin/claude"} {
+				if _, err2 := os.Stat(p); err2 == nil {
+					claudePath = p
+					break
+				}
+			}
+		}
+		if claudePath == "" {
+			claudePath = "claude"
+		}
+		cmd = exec.Command(claudePath, "--dangerously-skip-permissions")
 	default:
 		cmd = exec.Command(req.Harness)
 	}
