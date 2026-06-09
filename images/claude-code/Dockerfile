@@ -35,12 +35,11 @@ ENV PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 # Verify claude is accessible
 RUN claude --version || true
 
-# Run as a non-root user so claude --dangerously-skip-permissions works.
-RUN useradd -m -u 1000 -s /bin/bash sandlock
-USER sandlock
-WORKDIR /home/sandlock
+# Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000 — use it.
+USER ubuntu
+WORKDIR /home/ubuntu
 
-COPY --from=build --chown=sandlock:sandlock /supervisor /supervisor
+COPY --from=build --chown=ubuntu:ubuntu /supervisor /supervisor
 
 # Supervisor listens on 8080 (control) and 8081 (terminal).
 EXPOSE 8080 8081
