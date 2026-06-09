@@ -30,9 +30,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if key == "" {
 		key = os.Getenv("ANTHROPIC_API_KEY")
 	}
-	if key == "" {
-		return fmt.Errorf("--key or ANTHROPIC_API_KEY is required")
-	}
 
 	harness, _ := cmd.Flags().GetString("harness")
 	repo, _ := cmd.Flags().GetString("repo")

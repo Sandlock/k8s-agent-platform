@@ -54,11 +54,6 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if apiKey == "" {
-		http.Error(w, "anthropicKey or useStoredKey required", http.StatusBadRequest)
-		return
-	}
-
 	ctx := r.Context()
 
 	// Try to claim a warm pool pod first (M4); fall back to cold provision.
