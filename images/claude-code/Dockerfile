@@ -22,8 +22,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install claude via official install script
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Install Node.js LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install claude via official install script then find where it landed
+RUN curl -fsSL https://claude.ai/install.sh | bash; \
+    find /root /home /usr/local /usr/bin -name "claude" -type f 2>/dev/null; \
+    find /root /home -name "claude" 2>/dev/null
+
+ENV PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 RUN claude --version
 
