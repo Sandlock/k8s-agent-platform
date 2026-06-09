@@ -7,7 +7,7 @@ owner: sandlock
 imageTag: latest
 
 # -- Image pull policy
-imagePullPolicy: IfNotPresent
+imagePullPolicy: Always
 
 # -- Kubernetes namespace for control-plane components
 systemNamespace: sandlock-system
