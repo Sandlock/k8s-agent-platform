@@ -16,6 +16,10 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM ubuntu:24.04
 
+# Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000 — use it.
+USER ubuntu
+WORKDIR /home/ubuntu
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -35,10 +39,6 @@ RUN curl -fsSL https://claude.ai/install.sh | bash; \
 ENV PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 RUN claude --version
-
-# Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000 — use it.
-USER ubuntu
-WORKDIR /home/ubuntu
 
 COPY --from=build --chown=ubuntu:ubuntu /supervisor /supervisor
 
