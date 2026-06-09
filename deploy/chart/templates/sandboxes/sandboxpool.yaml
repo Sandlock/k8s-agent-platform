@@ -1,0 +1,14 @@
+{{- if .Values.pool.enabled }}
+apiVersion: sandlock.dev/v1alpha1
+kind: SandboxPool
+metadata:
+  name: default
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+spec:
+  harness: {{ .Values.pool.harness }}
+  targetReady: {{ .Values.pool.targetReady }}
+  maxTotal: {{ .Values.pool.maxTotal }}
+  podTtlSeconds: {{ .Values.pool.podTtlSeconds }}
+{{- end }}

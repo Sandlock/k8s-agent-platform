@@ -1,0 +1,21 @@
+apiVersion: v2
+name: sandlock
+description: Run Claude Code agents in isolated, ephemeral Kubernetes pods
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai
+  - agents
+  - kubernetes
+  - claude
+home: https://github.com/sandlock/k8s-agent-platform
+sources:
+  - https://github.com/sandlock/k8s-agent-platform
+maintainers:
+  - name: Sandlock Authors
+dependencies:
+  - name: postgresql
+    version: "18.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled

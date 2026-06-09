@@ -1,0 +1,114 @@
+# -- Container registry prefix
+registry: ghcr.io
+# -- GitHub owner / org (images are ghcr.io/<owner>/sandlock-<component>)
+owner: sandlock
+
+# -- Image tag applied to all images (override per-component below)
+imageTag: latest
+
+# -- Image pull policy
+imagePullPolicy: IfNotPresent
+
+# -- Kubernetes namespace for control-plane components
+systemNamespace: sandlock-system
+
+# -- Kubernetes namespace where sandbox pods run
+sandboxNamespace: sandboxes
+
+# ── Operator ──────────────────────────────────────────────────────────────────
+operator:
+  image: ""  # defaults to registry/owner/sandlock-operator:imageTag
+  replicas: 1
+  # RuntimeClass name passed to sandbox pods. Empty = cluster default.
+  runtimeClass: ""
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+# ── Supervisor image (used by the operator when creating sandbox pods) ─────────
+supervisor:
+  image: ""  # defaults to registry/owner/sandlock-supervisor:imageTag
+
+# ── Control plane ─────────────────────────────────────────────────────────────
+controlplane:
+  image: ""  # defaults to registry/owner/sandlock-controlplane:imageTag
+  replicas: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  service:
+    type: ClusterIP
+    port: 8090
+    # Set to LoadBalancer and provide a loadBalancerIP to expose externally.
+  ingress:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    tls:
+      enabled: false
+      secretName: ""
+
+# ── PostgreSQL (bundled) ──────────────────────────────────────────────────────
+# Set postgresql.enabled=true for a simple all-in-one install.
+# For production, disable this and provide database.url or database.existingSecret.
+postgresql:
+  enabled: true
+  auth:
+    database: sandlock
+    username: sandlock
+    # Auto-generated and stored in <release>-postgresql secret if left empty.
+    password: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+# ── Database (external) ───────────────────────────────────────────────────────
+# Ignored when postgresql.enabled=true.
+# Required for auth (M2) and BYOK key storage (M3).
+# Leave empty to run in no-auth dev mode (in-memory sandbox store).
+database:
+  # Full PostgreSQL DSN: postgres://user:pass@host:5432/dbname?sslmode=disable
+  url: ""
+  # Reference an existing Secret instead of creating one from `url` above.
+  existingSecret: ""
+  existingSecretKey: DATABASE_URL
+
+# ── BYOK key encryption ───────────────────────────────────────────────────────
+# 32-byte hex string (openssl rand -hex 32).  Required when database.url is set.
+masterKey: ""
+masterKeyExistingSecret: ""
+masterKeyExistingSecretKey: MASTER_KEY
+
+# ── Warm pool (M4) ────────────────────────────────────────────────────────────
+pool:
+  enabled: false
+  harness: claude-code
+  targetReady: 2
+  maxTotal: 20
+  podTtlSeconds: 3600
+
+# ── Isolation (M6) ────────────────────────────────────────────────────────────
+isolation:
+  # Install the gVisor RuntimeClass.
+  runtimeClass:
+    enabled: false
+  # Apply default-deny NetworkPolicies in the sandbox namespace.
+  networkPolicies:
+    enabled: true

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandlock-operator
+  namespace: sandlock-system
+  labels:
+    app.kubernetes.io/name: sandlock-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sandlock-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sandlock-operator
+    spec:
+      serviceAccountName: sandlock-operator
+      containers:
+        - name: operator
+          image: sandlock/operator:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --supervisor-image=sandlock/supervisor:latest
+          ports:
+            - name: metrics
+              containerPort: 8383
+            - name: healthz
+              containerPort: 8384
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8384
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8384
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi

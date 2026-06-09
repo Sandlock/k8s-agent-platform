@@ -1,0 +1,121 @@
+{{/*
+  Resolve which secret + key to use for DATABASE_URL.
+  Priority: postgresql.enabled > database.existingSecret > database.url (own secret)
+*/}}
+{{- define "sandlock.dbSecretName" -}}
+{{- if .Values.postgresql.enabled -}}
+{{ .Release.Name }}-postgresql
+{{- else if .Values.database.existingSecret -}}
+{{ .Values.database.existingSecret }}
+{{- else if .Values.database.url -}}
+sandlock-db
+{{- end -}}
+{{- end -}}
+
+{{- define "sandlock.dbSecretKey" -}}
+{{- if .Values.postgresql.enabled -}}
+password
+{{- else -}}
+{{ .Values.database.existingSecretKey | default "DATABASE_URL" }}
+{{- end -}}
+{{- end -}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandlock-controlplane
+  namespace: {{ include "sandlock.systemNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controlplane
+spec:
+  replicas: {{ .Values.controlplane.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "sandlock.name" . }}
+      app.kubernetes.io/component: controlplane
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "sandlock.name" . }}
+        app.kubernetes.io/component: controlplane
+    spec:
+      serviceAccountName: sandlock-controlplane
+      {{- if .Values.postgresql.enabled }}
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ .Release.Name }}-postgresql.{{ include "sandlock.systemNamespace" . }}.svc.cluster.local 5432; do
+                echo "waiting for postgres..."; sleep 2
+              done
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controlplane
+          image: {{ include "sandlock.image" (list . "controlplane") }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.controlplane.service.port }}"
+            - name: SANDBOX_NAMESPACE
+              value: {{ include "sandlock.sandboxNamespace" . }}
+            {{- $dbSecret := include "sandlock.dbSecretName" . }}
+            {{- if $dbSecret }}
+            {{- if .Values.postgresql.enabled }}
+            {{- $pgUser := .Values.postgresql.auth.username }}
+            {{- $pgDB   := .Values.postgresql.auth.database }}
+            {{- $pgHost := printf "%s-postgresql.%s.svc.cluster.local" .Release.Name (include "sandlock.systemNamespace" .) }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dbSecret }}
+                  key: password
+            - name: DATABASE_URL
+              value: "postgres://{{ $pgUser }}:$(PG_PASSWORD)@{{ $pgHost }}:5432/{{ $pgDB }}?sslmode=disable"
+            {{- else }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dbSecret }}
+                  key: {{ include "sandlock.dbSecretKey" . }}
+            {{- end }}
+            {{- end }}
+            {{- $mkSecret := .Values.masterKeyExistingSecret | default (and .Values.masterKey "sandlock-master-key") }}
+            {{- if $mkSecret }}
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $mkSecret }}
+                  key: {{ .Values.masterKeyExistingSecretKey | default "MASTER_KEY" }}
+            {{- end }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.controlplane.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.controlplane.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true

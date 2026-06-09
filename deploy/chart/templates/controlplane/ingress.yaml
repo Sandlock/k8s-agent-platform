@@ -1,0 +1,34 @@
+{{- if .Values.controlplane.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sandlock-controlplane
+  namespace: {{ include "sandlock.systemNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+  {{- with .Values.controlplane.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.controlplane.ingress.className }}
+  ingressClassName: {{ .Values.controlplane.ingress.className }}
+  {{- end }}
+  {{- if .Values.controlplane.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.controlplane.ingress.host | quote }}
+      secretName: {{ .Values.controlplane.ingress.tls.secretName | default (printf "%s-tls" (include "sandlock.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.controlplane.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sandlock-controlplane
+                port:
+                  name: api
+{{- end }}

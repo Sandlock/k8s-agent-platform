@@ -1,0 +1,42 @@
+name: Helm lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/chart/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "deploy/chart/**"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      - name: Fetch chart dependencies
+        run: helm dependency update deploy/chart
+
+      - name: Lint chart (default values — bundled postgres)
+        run: helm lint deploy/chart
+
+      - name: Lint chart (with DB + pool + isolation)
+        run: |
+          helm lint deploy/chart \
+            --set database.url="postgres://user:pass@host/db" \
+            --set masterKey="0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20" \
+            --set pool.enabled=true \
+            --set isolation.runtimeClass.enabled=true \
+            --set isolation.networkPolicies.enabled=true \
+            --set controlplane.ingress.enabled=true \
+            --set controlplane.ingress.host=sandlock.example.com
+
+      - name: Template chart (dry-run)
+        run: helm template sandlock deploy/chart > /dev/null
