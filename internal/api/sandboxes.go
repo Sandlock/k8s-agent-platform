@@ -11,8 +11,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	sandlockv1alpha1 "github.com/sandlock/k8s-agent-platform/api/v1alpha1"
 	"github.com/sandlock/k8s-agent-platform/internal/provider"
 	proto "github.com/sandlock/k8s-agent-platform/internal/supervisorproto"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // sandboxRecord is the in-memory fallback used when DATABASE_URL is not set.
@@ -56,8 +58,8 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	// Try to claim a warm pool pod first (M4); fall back to cold provision.
-	handle, err := s.claimFromPoolOrProvision(ctx, req.Harness)
+	// Try to claim a warm pool pod first; fall back to cold provision.
+	handle, err := s.claimFromPoolOrProvision(ctx, req.Harness, userID)
 	if err != nil {
 		http.Error(w, "failed to provision sandbox", http.StatusInternalServerError)
 		return
@@ -109,32 +111,45 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// claimFromPoolOrProvision atomically claims a ready pool pod or cold-provisions one.
-func (s *Server) claimFromPoolOrProvision(ctx context.Context, harness string) (provider.Handle, error) {
-	if s.db != nil {
-		// Atomic claim via DB: SELECT FOR UPDATE SKIP LOCKED.
-		var ref string
-		err := s.db.QueryRow(ctx,
-			`UPDATE sandboxes SET status='claiming'
-			 WHERE id = (
-			   SELECT id FROM sandboxes
-			   WHERE status='ready' AND harness=$1
-			   LIMIT 1 FOR UPDATE SKIP LOCKED
-			 ) RETURNING provider_ref`,
-			harness,
-		).Scan(&ref)
-		if err == nil && ref != "" {
-			h, parseErr := provider.ParseHandle(ref)
-			if parseErr == nil {
-				return h, nil
-			}
-		}
+// claimFromPoolOrProvision claims a warm pool pod from Kubernetes or cold-provisions one.
+func (s *Server) claimFromPoolOrProvision(ctx context.Context, harness, userID string) (provider.Handle, error) {
+	if h, ok := s.claimFromPool(ctx, harness, userID); ok {
+		return h, nil
 	}
-	// Cold provision fallback.
 	return s.prov.Provision(ctx, provider.SandboxSpec{
 		Harness: harness, CPULimit: "1", MemoryLimit: "2Gi",
 		TTLSeconds: 3600, IdleTimeoutSeconds: 900,
 	})
+}
+
+// claimFromPool finds a Ready warm pool Sandbox CR and atomically marks it Claimed.
+// Uses optimistic locking: if two requests race, one gets a conflict and retries the next pod.
+func (s *Server) claimFromPool(ctx context.Context, harness, userID string) (provider.Handle, bool) {
+	var list sandlockv1alpha1.SandboxList
+	if err := s.k8s.List(ctx, &list, client.InNamespace("sandboxes")); err != nil {
+		return provider.Handle{}, false
+	}
+	for i := range list.Items {
+		sb := &list.Items[i]
+		if !sb.Spec.Pool {
+			continue
+		}
+		if sb.Status.Phase != sandlockv1alpha1.PhaseReady {
+			continue
+		}
+		if sb.Status.ClaimedBy != "" {
+			continue
+		}
+		// Attempt optimistic claim — will conflict if another request beats us to it.
+		patch := sb.DeepCopy()
+		patch.Status.Phase = sandlockv1alpha1.PhaseClaimed
+		patch.Status.ClaimedBy = userID
+		if err := s.k8s.Status().Update(ctx, patch); err != nil {
+			continue // conflict or transient error — try the next pod
+		}
+		return provider.Handle{Namespace: sb.Namespace, Name: sb.Name}, true
+	}
+	return provider.Handle{}, false
 }
 
 func (s *Server) waitForReady(ctx context.Context, h provider.Handle, timeout time.Duration) error {
@@ -144,7 +159,7 @@ func (s *Server) waitForReady(ctx context.Context, h provider.Handle, timeout ti
 		if err != nil {
 			return err
 		}
-		if phase == provider.PhaseReady {
+		if phase == provider.PhaseReady || phase == provider.PhaseClaimed {
 			return nil
 		}
 		if phase == provider.PhaseFailed {
