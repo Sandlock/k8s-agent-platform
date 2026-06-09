@@ -35,6 +35,9 @@ RUN chmod +x /supervisor
 
 RUN claude --version
 
+# Workspace directory writable by the ubuntu user (supervisor runs as uid 1000).
+RUN mkdir /workspace && chown ubuntu:ubuntu /workspace
+
 # Drop to non-root after all installs are done.
 # Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000.
 USER ubuntu

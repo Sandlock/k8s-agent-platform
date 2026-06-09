@@ -105,7 +105,9 @@ func (s *supervisor) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 // launch optionally clones a repo, then starts the agent harness with a PTY.
 func (s *supervisor) launch(req proto.ClaimRequest) error {
 	workDir := "/workspace"
-	os.MkdirAll(workDir, 0755)
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		log.Printf("warning: MkdirAll %s: %v", workDir, err)
+	}
 
 	if req.RepoURL != "" {
 		clone := exec.Command("git", "clone", "--depth=1", req.RepoURL, workDir)
