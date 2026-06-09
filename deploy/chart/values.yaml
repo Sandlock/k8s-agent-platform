@@ -49,13 +49,15 @@ controlplane:
     port: 8090
     # Set to LoadBalancer and provide a loadBalancerIP to expose externally.
   ingress:
-    enabled: false
-    className: ""
-    host: ""
-    annotations: {}
+    enabled: true
+    className: "nginx"
+    host: "sandlock.stevefraser.dev"
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      external-dns.alpha.kubernetes.io/hostname: sandlock.stevefraser.dev
     tls:
-      enabled: false
-      secretName: ""
+      enabled: true
+      secretName: "sandlock-tls"
 
 # ── PostgreSQL (bundled) ──────────────────────────────────────────────────────
 # Set postgresql.enabled=true for a simple all-in-one install.
