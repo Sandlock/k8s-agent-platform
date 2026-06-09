@@ -22,18 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# Install claude via official install script
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# Install claude-code globally
-RUN npm install -g @anthropic-ai/claude-code
-
-ENV PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
-
-# Verify claude is accessible
-RUN claude --version || true
+RUN claude --version
 
 # Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000 — use it.
 USER ubuntu

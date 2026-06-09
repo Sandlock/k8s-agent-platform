@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 	"sync/atomic"
@@ -42,30 +41,6 @@ type supervisor struct {
 	mu      sync.Mutex
 }
 
-// claudeArgs returns the command + args to launch claude code.
-// We exec node directly to avoid needing a shell.
-func claudeArgs() []string {
-	// Resolve the symlink to get the real JS entry point.
-	link := "/usr/bin/claude"
-	real, err := os.Readlink(link)
-	if err == nil {
-		if !filepath.IsAbs(real) {
-			real = filepath.Join(filepath.Dir(link), real)
-		}
-		real = filepath.Clean(real)
-	} else {
-		// Fallback: known npm global install path.
-		real = "/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
-	}
-	log.Printf("claude entry point: %s", real)
-
-	node := "/usr/bin/node"
-	if _, err := os.Stat(node); err != nil {
-		node = "/usr/local/bin/node"
-	}
-	log.Printf("node binary: %s", node)
-	return []string{node, real, "--dangerously-skip-permissions"}
-}
 
 func main() {
 	sup := &supervisor{}
@@ -143,7 +118,10 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 
 	harness := harnessCmd(req, workDir)
 	// Key goes into child env only — never argv, never disk.
-	harness.Env = os.Environ()
+	harness.Env = append(os.Environ(),
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"HOME=/home/ubuntu",
+	)
 	if req.AnthropicKey != "" {
 		harness.Env = append(harness.Env, "ANTHROPIC_API_KEY="+req.AnthropicKey)
 	}
@@ -171,8 +149,7 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
 	case "claude-code":
-		args := claudeArgs()
-		cmd = exec.Command(args[0], args[1:]...)
+		cmd = exec.Command("claude", "--dangerously-skip-permissions")
 	default:
 		cmd = exec.Command(req.Harness)
 	}
