@@ -144,7 +144,7 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
 	case "claude-code":
-		cmd = exec.Command("claude", "--dangerously-skip-permissions")
+		cmd = exec.Command("/usr/local/bin/claude", "--dangerously-skip-permissions")
 	default:
 		cmd = exec.Command(req.Harness)
 	}
