@@ -43,6 +43,10 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 
+	// Health probes.
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+
 	// Auth endpoints — no session required.
 	r.Post("/v1/auth/register", s.register)
 	r.Post("/v1/auth/login", s.login)
