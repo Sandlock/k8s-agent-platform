@@ -242,7 +242,17 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	err = harness.Wait()
 	log.Printf("harness exited: %v — notifying control plane", err)
 	if s.exitCallbackURL != "" {
-		http.Post(s.exitCallbackURL, "application/json", nil) //nolint:errcheck
+		// Retry a few times in case the control plane is briefly unreachable.
+		for i := 0; i < 5; i++ {
+			resp, cerr := http.Post(s.exitCallbackURL, "application/json", nil)
+			if cerr == nil {
+				resp.Body.Close()
+				log.Printf("exit callback delivered (attempt %d)", i+1)
+				break
+			}
+			log.Printf("exit callback attempt %d failed: %v", i+1, cerr)
+			time.Sleep(time.Duration(i+1) * time.Second)
+		}
 	}
 	os.Exit(0)
 	return nil
