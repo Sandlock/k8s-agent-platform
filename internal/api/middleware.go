@@ -11,20 +11,28 @@ import (
 
 type ctxKey string
 
-const ctxUserID ctxKey = "userID"
+const (
+	ctxUserID  ctxKey = "userID"
+	ctxIsAdmin ctxKey = "isAdmin"
+)
 
 func userIDFromCtx(ctx context.Context) string {
 	v, _ := ctx.Value(ctxUserID).(string)
 	return v
 }
 
-// requireAuth validates the Bearer session token and injects the user ID into the context.
-// When DB is not configured, it injects a synthetic user ID so M1 dev mode still works.
+func isAdminFromCtx(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxIsAdmin).(bool)
+	return v
+}
+
+// requireAuth validates the Bearer session token and injects the user ID and
+// admin flag into the context.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.db == nil {
-			// No-auth dev mode: inject a fixed user ID.
 			ctx := context.WithValue(r.Context(), ctxUserID, "dev-user")
+			ctx = context.WithValue(ctx, ctxIsAdmin, true)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -37,18 +45,33 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 
 		hash := auth.HashToken(token)
 		var userID string
+		var isAdmin bool
 		err := s.db.QueryRow(r.Context(),
-			`SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at > $2`,
+			`SELECT s.user_id, u.is_admin
+			 FROM sessions s JOIN users u ON u.id = s.user_id
+			 WHERE s.token_hash=$1 AND s.expires_at > $2`,
 			hash, time.Now(),
-		).Scan(&userID)
+		).Scan(&userID, &isAdmin)
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), ctxUserID, userID)
+		ctx = context.WithValue(ctx, ctxIsAdmin, isAdmin)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// requireAdmin is like requireAuth but also enforces the is_admin flag.
+func (s *Server) requireAdmin(next http.Handler) http.Handler {
+	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isAdminFromCtx(r.Context()) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
 }
 
 func bearerToken(r *http.Request) string {

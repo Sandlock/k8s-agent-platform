@@ -33,12 +33,27 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 export const api = {
   login: (username: string, password: string) =>
-    req<{ token: string }>('POST', '/v1/auth/login', { username, password }),
+    req<{ token: string; isAdmin: boolean; mustChangePassword: boolean }>('POST', '/v1/auth/login', { username, password }),
   logout: () => req<void>('POST', '/v1/auth/logout'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    req<void>('PUT', '/v1/auth/password', { currentPassword, newPassword }),
+
   listSandboxes: () => req<Sandbox[]>('GET', '/v1/sandboxes'),
   createSandbox: (body: CreateSandboxBody) => req<{ sandboxId: string; attachUrl: string }>('POST', '/v1/sandboxes', body),
   stopSandbox: (id: string) => req<void>('DELETE', `/v1/sandboxes/${id}`),
   storeKey: (anthropicKey: string) => req<{ hint: string }>('POST', '/v1/keys', { anthropicKey }),
+
+  listUsers: () => req<User[]>('GET', '/v1/users'),
+  createUser: (username: string, password: string, isAdmin: boolean) =>
+    req<{ userId: string }>('POST', '/v1/users', { username, password, isAdmin }),
+  deleteUser: (id: string) => req<void>('DELETE', `/v1/users/${id}`),
+}
+
+export interface User {
+  id: string
+  username: string
+  isAdmin: boolean
+  createdAt: string
 }
 
 export interface Sandbox {

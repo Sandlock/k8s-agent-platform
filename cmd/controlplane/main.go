@@ -14,7 +14,9 @@ import (
 	"os"
 
 	"github.com/sandlock/k8s-agent-platform/internal/api"
+	"github.com/sandlock/k8s-agent-platform/internal/auth"
 	"github.com/sandlock/k8s-agent-platform/internal/db"
+	"github.com/jackc/pgx/v5/pgxpool"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -54,6 +56,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("db: %v", err)
 		}
+		seedAdmin(context.Background(), dbPool)
 		srv = api.NewServer(k8sClient, sandboxNS, dbPool)
 	} else {
 		log.Println("DATABASE_URL not set — running without DB (no auth, in-memory sandbox store)")
@@ -71,4 +74,32 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// seedAdmin creates the admin user on first boot if no users exist.
+func seedAdmin(ctx context.Context, pool *pgxpool.Pool) {
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&count); err != nil || count > 0 {
+		return
+	}
+	password := os.Getenv("ADMIN_PASSWORD")
+	if password == "" {
+		log.Println("ADMIN_PASSWORD not set — skipping admin seed")
+		return
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		log.Printf("seed admin: hash password: %v", err)
+		return
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users(username, password_hash, is_admin, must_change_password)
+		 VALUES('admin', $1, true, true)`,
+		hash,
+	)
+	if err != nil {
+		log.Printf("seed admin: insert: %v", err)
+		return
+	}
+	log.Println("admin user created — password is in the sandlock-admin Secret")
 }

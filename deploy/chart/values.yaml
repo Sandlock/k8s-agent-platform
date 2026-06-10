@@ -78,6 +78,12 @@ database:
   existingSecret: ""
   existingSecretKey: DATABASE_URL
 
+# ── Admin user ────────────────────────────────────────────────────────────────
+# Leave empty to auto-generate a password and store it in the sandlock-admin Secret.
+# Retrieve it with: kubectl get secret sandlock-admin -n sandlock-system -o jsonpath='{.data.password}' | base64 -d
+admin:
+  password: ""
+
 # ── BYOK key encryption ───────────────────────────────────────────────────────
 # 32-byte hex string (openssl rand -hex 32).  Required when database.url is set.
 masterKey: ""

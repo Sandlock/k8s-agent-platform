@@ -96,6 +96,11 @@ spec:
                   name: {{ $mkSecret }}
                   key: {{ .Values.masterKeyExistingSecretKey | default "MASTER_KEY" }}
             {{- end }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sandlock-admin
+                  key: password
           ports:
             - name: api
               containerPort: {{ .Values.controlplane.service.port }}

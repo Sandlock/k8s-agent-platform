@@ -61,22 +61,29 @@ func (s *Server) Handler() http.Handler {
 	r.Post("/v1/auth/login", s.login)
 	r.Post("/v1/auth/logout", s.logout)
 
-	// BYOK key endpoints.
+	// Authenticated endpoints.
 	r.Group(func(r chi.Router) {
 		r.Use(s.requireAuth)
+
+		r.Put("/v1/auth/password", s.changePassword)
+
 		r.Post("/v1/keys", s.storeKey)
 		r.Delete("/v1/keys", s.deleteKey)
-	})
 
-	// Sandbox endpoints.
-	r.Group(func(r chi.Router) {
-		r.Use(s.requireAuth)
 		r.Post("/v1/sandboxes", s.createSandbox)
 		r.Get("/v1/sandboxes", s.listSandboxes)
 		r.Get("/v1/sandboxes/{id}", s.getSandbox)
 		r.Delete("/v1/sandboxes/{id}", s.stopSandbox)
 		r.Get("/v1/sandboxes/{id}/terminal", s.terminalProxy)
 		r.Get("/v1/sandboxes/{id}/tunnel", s.tunnelProxy)
+	})
+
+	// Admin-only user management.
+	r.Group(func(r chi.Router) {
+		r.Use(s.requireAdmin)
+		r.Get("/v1/users", s.listUsers)
+		r.Post("/v1/users", s.createUser)
+		r.Delete("/v1/users/{id}", s.deleteUser)
 	})
 
 	return r

@@ -1,7 +1,9 @@
 import { useState, FormEvent } from 'react'
 import { api } from '../api'
 
-interface Props { onLogin: (token: string) => void }
+interface Props {
+  onLogin: (token: string, isAdmin: boolean, mustChangePassword: boolean) => void
+}
 
 export default function Login({ onLogin }: Props) {
   const [username, setUsername] = useState('')
@@ -14,8 +16,8 @@ export default function Login({ onLogin }: Props) {
     setLoading(true)
     setError('')
     try {
-      const { token } = await api.login(username, password)
-      onLogin(token)
+      const res = await api.login(username, password)
+      onLogin(res.token, res.isAdmin, res.mustChangePassword)
     } catch (err: any) {
       setError(err.message ?? 'Login failed')
     } finally {
