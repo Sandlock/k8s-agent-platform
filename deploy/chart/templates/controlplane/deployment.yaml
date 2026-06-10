@@ -101,6 +101,8 @@ spec:
                 secretKeyRef:
                   name: sandlock-admin
                   key: password
+            - name: SELF_URL
+              value: "http://sandlock-controlplane.{{ include "sandlock.systemNamespace" . }}.svc.cluster.local:{{ .Values.controlplane.service.port }}"
           ports:
             - name: api
               containerPort: {{ .Values.controlplane.service.port }}
