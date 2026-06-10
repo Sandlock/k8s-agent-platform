@@ -15,21 +15,7 @@ systemNamespace: sandlock-system
 # -- Kubernetes namespace where sandbox pods run
 sandboxNamespace: sandboxes
 
-# ── Operator ──────────────────────────────────────────────────────────────────
-operator:
-  image: ""  # defaults to registry/owner/sandlock-operator:imageTag
-  replicas: 1
-  # RuntimeClass name passed to sandbox pods. Empty = cluster default.
-  runtimeClass: ""
-  resources:
-    limits:
-      cpu: 200m
-      memory: 128Mi
-    requests:
-      cpu: 100m
-      memory: 64Mi
-
-# ── Supervisor image (used by the operator when creating sandbox pods) ─────────
+# ── Supervisor image (used by the SandboxTemplate) ───────────────────────────
 supervisor:
   image: ""  # defaults to registry/owner/sandlock-supervisor:imageTag
 
@@ -100,9 +86,9 @@ masterKeyExistingSecretKey: MASTER_KEY
 
 # ── Warm pool (M4) ────────────────────────────────────────────────────────────
 pool:
-  enabled: false
+  enabled: true
   harness: claude-code
-  targetReady: 2
+  targetReady: 1
   maxTotal: 20
   podTtlSeconds: 3600
 

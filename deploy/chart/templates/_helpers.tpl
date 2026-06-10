@@ -57,6 +57,13 @@ Usage: include "sandlock.image" (list . "operator")
 {{- end }}
 
 {{/*
+Supervisor image (used by SandboxTemplate).
+*/}}
+{{- define "sandlock.supervisorImage" -}}
+{{- include "sandlock.image" (list . "supervisor") }}
+{{- end }}
+
+{{/*
 System namespace.
 */}}
 {{- define "sandlock.systemNamespace" -}}

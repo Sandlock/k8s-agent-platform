@@ -1,0 +1,46 @@
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
+metadata:
+  name: claude-code
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+spec:
+  podTemplate:
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      automountServiceAccountToken: false
+      containers:
+        - name: supervisor
+          image: {{ include "sandlock.supervisorImage" . }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: control
+              containerPort: 8080
+              protocol: TCP
+            - name: terminal
+              containerPort: 8081
+              protocol: TCP
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /heartbeat
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      restartPolicy: OnFailure

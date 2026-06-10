@@ -6,15 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
-	sandlockv1alpha1 "github.com/sandlock/k8s-agent-platform/api/v1alpha1"
-	"github.com/sandlock/k8s-agent-platform/internal/provider"
 	proto "github.com/sandlock/k8s-agent-platform/internal/supervisorproto"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	agentv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
+	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 )
 
 // sandboxRecord is the in-memory fallback used when DATABASE_URL is not set.
@@ -23,15 +25,15 @@ type sandboxRecord struct {
 	UserID      string    `json:"userId"`
 	Harness     string    `json:"harness"`
 	Status      string    `json:"status"`
-	ProviderRef string    `json:"providerRef"`
+	ProviderRef string    `json:"providerRef"` // "claim/<ns>/<name>"
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
 type createSandboxRequest struct {
-	Harness       string `json:"harness"`
-	AnthropicKey  string `json:"anthropicKey,omitempty"`
-	UseStoredKey  bool   `json:"useStoredKey,omitempty"`
-	RepoURL       string `json:"repoUrl,omitempty"`
+	Harness      string `json:"harness"`
+	AnthropicKey string `json:"anthropicKey,omitempty"`
+	UseStoredKey bool   `json:"useStoredKey,omitempty"`
+	RepoURL      string `json:"repoUrl,omitempty"`
 }
 
 func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
@@ -58,38 +60,28 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	// Try to claim a warm pool pod first; fall back to cold provision.
-	handle, err := s.claimFromPoolOrProvision(ctx, req.Harness, userID)
+	// Create a SandboxClaim and wait for agent-sandbox to adopt a warm pod.
+	claimRef, sandboxFQDN, err := s.claimFromPool(ctx, req.Harness, 120*time.Second)
 	if err != nil {
-		http.Error(w, "failed to provision sandbox", http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.waitForReady(ctx, handle, 120*time.Second); err != nil {
-		s.prov.Destroy(ctx, handle)
-		http.Error(w, "sandbox timed out", http.StatusGatewayTimeout)
+		http.Error(w, "failed to provision sandbox: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Send Claim to supervisor — key lives only in this in-memory call.
-	supervisorURL := fmt.Sprintf("http://sandbox-%s.%s.svc.cluster.local:8080/claim",
-		handle.Name, handle.Namespace)
+	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
 	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.Harness, req.RepoURL); err != nil {
-		s.prov.Destroy(ctx, handle)
+		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
 	}
-
-	// Warm a replacement in the background.
-	go s.poolMgr.WarmOne(ctx, handle.Namespace, req.Harness)
 
 	id := uuid.New().String()
 	if s.db != nil {
 		_, err = s.db.Exec(ctx,
 			`INSERT INTO sandboxes(id, user_id, harness, repo_url, status, provider_ref, expires_at)
 			 VALUES($1,$2,$3,$4,'running',$5,$6)`,
-			id, userID, req.Harness, req.RepoURL, handle.String(),
-			time.Now().Add(time.Duration(3600)*time.Second),
+			id, userID, req.Harness, req.RepoURL, claimRef,
+			time.Now().Add(3600*time.Second),
 		)
 		if err != nil {
 			http.Error(w, "db error", http.StatusInternalServerError)
@@ -99,7 +91,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.memStore[id] = &sandboxRecord{
 			ID: id, UserID: userID, Harness: req.Harness,
-			Status: "running", ProviderRef: handle.String(), CreatedAt: time.Now(),
+			Status: "running", ProviderRef: claimRef, CreatedAt: time.Now(),
 		}
 		s.mu.Unlock()
 	}
@@ -111,67 +103,108 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// claimFromPoolOrProvision claims a warm pool pod from Kubernetes or cold-provisions one.
-func (s *Server) claimFromPoolOrProvision(ctx context.Context, harness, userID string) (provider.Handle, error) {
-	if h, ok := s.claimFromPool(ctx, harness, userID); ok {
-		return h, nil
+// claimFromPool creates a SandboxClaim and waits for agent-sandbox to assign a warm pod.
+// Returns the claim ref ("claim/<ns>/<name>") and the sandbox service FQDN.
+func (s *Server) claimFromPool(ctx context.Context, harness string, timeout time.Duration) (string, string, error) {
+	warmPool := extensionsv1alpha1.WarmPoolPolicyDefault
+	claim := &extensionsv1alpha1.SandboxClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "sc-",
+			Namespace:    s.sandboxNS,
+		},
+		Spec: extensionsv1alpha1.SandboxClaimSpec{
+			TemplateRef: extensionsv1alpha1.SandboxTemplateRef{Name: harness},
+			WarmPool:    &warmPool,
+			Lifecycle: &extensionsv1alpha1.Lifecycle{
+				ShutdownPolicy: extensionsv1alpha1.ShutdownPolicyDelete,
+			},
+		},
 	}
-	return s.prov.Provision(ctx, provider.SandboxSpec{
-		Harness: harness, CPULimit: "1", MemoryLimit: "2Gi",
-		TTLSeconds: 3600, IdleTimeoutSeconds: 900,
-	})
-}
+	if err := s.k8s.Create(ctx, claim); err != nil {
+		return "", "", fmt.Errorf("create SandboxClaim: %w", err)
+	}
+	claimRef := fmt.Sprintf("claim/%s/%s", s.sandboxNS, claim.Name)
 
-// claimFromPool finds a Ready warm pool Sandbox CR and atomically marks it Claimed.
-// Uses optimistic locking: if two requests race, one gets a conflict and retries the next pod.
-func (s *Server) claimFromPool(ctx context.Context, harness, userID string) (provider.Handle, bool) {
-	var list sandlockv1alpha1.SandboxList
-	if err := s.k8s.List(ctx, &list, client.InNamespace("sandboxes")); err != nil {
-		return provider.Handle{}, false
-	}
-	for i := range list.Items {
-		sb := &list.Items[i]
-		if !sb.Spec.Pool {
-			continue
-		}
-		if sb.Status.Phase != sandlockv1alpha1.PhaseReady {
-			continue
-		}
-		if sb.Status.ClaimedBy != "" {
-			continue
-		}
-		// Attempt optimistic claim — will conflict if another request beats us to it.
-		patch := sb.DeepCopy()
-		patch.Status.Phase = sandlockv1alpha1.PhaseClaimed
-		patch.Status.ClaimedBy = userID
-		if err := s.k8s.Status().Update(ctx, patch); err != nil {
-			continue // conflict or transient error — try the next pod
-		}
-		return provider.Handle{Namespace: sb.Namespace, Name: sb.Name}, true
-	}
-	return provider.Handle{}, false
-}
-
-func (s *Server) waitForReady(ctx context.Context, h provider.Handle, timeout time.Duration) error {
+	// Poll until agent-sandbox adopts a warm pod (status.sandbox.name populated).
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		phase, err := s.prov.Status(ctx, h)
-		if err != nil {
-			return err
-		}
-		if phase == provider.PhaseReady || phase == provider.PhaseClaimed {
-			return nil
-		}
-		if phase == provider.PhaseFailed {
-			return fmt.Errorf("sandbox failed")
-		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			s.destroyClaim(context.Background(), claimRef)
+			return "", "", ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
+
+		var current extensionsv1alpha1.SandboxClaim
+		if err := s.k8s.Get(ctx, types.NamespacedName{Namespace: s.sandboxNS, Name: claim.Name}, &current); err != nil {
+			continue
+		}
+		sbName := current.Status.SandboxStatus.Name
+		if sbName == "" {
+			continue
+		}
+
+		// Sandbox is adopted — fetch its service FQDN.
+		var sb agentv1alpha1.Sandbox
+		if err := s.k8s.Get(ctx, types.NamespacedName{Namespace: s.sandboxNS, Name: sbName}, &sb); err != nil {
+			continue
+		}
+		fqdn := sb.Status.ServiceFQDN
+		if fqdn == "" {
+			// Fall back to constructed FQDN if status not yet populated.
+			fqdn = fmt.Sprintf("%s.%s.svc.cluster.local", sbName, s.sandboxNS)
+		}
+		return claimRef, fqdn, nil
 	}
-	return fmt.Errorf("timeout after %s", timeout)
+
+	s.destroyClaim(context.Background(), claimRef)
+	return "", "", fmt.Errorf("timeout waiting for warm pool pod after %s", timeout)
+}
+
+// destroyClaim deletes a SandboxClaim by ref ("claim/<ns>/<name>").
+// agent-sandbox cascades deletion to the Sandbox and Pod via ShutdownPolicyDelete.
+func (s *Server) destroyClaim(ctx context.Context, ref string) {
+	_, ns, name, ok := parseClaimRef(ref)
+	if !ok {
+		return
+	}
+	claim := &extensionsv1alpha1.SandboxClaim{}
+	claim.Name = name
+	claim.Namespace = ns
+	_ = s.k8s.Delete(ctx, claim)
+}
+
+// parseClaimRef parses "claim/<ns>/<name>" into its parts.
+func parseClaimRef(ref string) (kind, ns, name string, ok bool) {
+	parts := strings.SplitN(ref, "/", 3)
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+// sandboxFQDNFromClaimRef looks up the sandbox FQDN for a stored claim ref.
+func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (string, error) {
+	_, ns, name, ok := parseClaimRef(ref)
+	if !ok {
+		return "", fmt.Errorf("invalid provider ref %q", ref)
+	}
+	var claim extensionsv1alpha1.SandboxClaim
+	if err := s.k8s.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &claim); err != nil {
+		return "", fmt.Errorf("get SandboxClaim: %w", err)
+	}
+	sbName := claim.Status.SandboxStatus.Name
+	if sbName == "" {
+		return "", fmt.Errorf("SandboxClaim %s/%s not yet adopted", ns, name)
+	}
+	var sb agentv1alpha1.Sandbox
+	if err := s.k8s.Get(ctx, types.NamespacedName{Namespace: ns, Name: sbName}, &sb); err != nil {
+		return "", fmt.Errorf("get Sandbox: %w", err)
+	}
+	if fqdn := sb.Status.ServiceFQDN; fqdn != "" {
+		return fqdn, nil
+	}
+	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
 func claimSupervisor(ctx context.Context, url, key, harness, repoURL string) error {
@@ -250,7 +283,6 @@ func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type refHolder interface{ providerRef() string }
 	var ref string
 	switch v := sb.(type) {
 	case *sandboxRecord:
@@ -270,9 +302,7 @@ func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 	}
 
-	if h, err := provider.ParseHandle(ref); err == nil {
-		s.prov.Destroy(r.Context(), h)
-	}
+	s.destroyClaim(r.Context(), ref)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -285,18 +315,16 @@ func (s *Server) terminalProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	h, err := provider.ParseHandle(ref)
+	fqdn, err := s.sandboxFQDNFromClaimRef(r.Context(), ref)
 	if err != nil {
-		http.Error(w, "invalid ref", http.StatusInternalServerError)
+		http.Error(w, "cannot resolve sandbox: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.proxyWebSocket(w, r,
-		fmt.Sprintf("ws://sandbox-%s.%s.svc.cluster.local:8081/", h.Name, h.Namespace))
+	s.proxyWebSocket(w, r, fmt.Sprintf("ws://%s:8081/", fqdn))
 }
 
-// tunnelProxy provides the WS tunnel endpoint for the CLI attach command (M5).
+// tunnelProxy is the CLI attach endpoint — identical to terminalProxy.
 func (s *Server) tunnelProxy(w http.ResponseWriter, r *http.Request) {
-	// Identical to terminalProxy: the CLI uses the same WS protocol.
 	s.terminalProxy(w, r)
 }
 
@@ -320,7 +348,7 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 	cn := websocket.NetConn(ctx, client, websocket.MessageBinary)
 	pn := websocket.NetConn(ctx, pod, websocket.MessageBinary)
 
-	// pod → client: when pod closes, cancel ctx so cn.Read unblocks below.
+	// pod → client: cancel ctx when pod closes so cn.Read unblocks.
 	go func() {
 		buf := make([]byte, 32<<10)
 		for {
@@ -348,7 +376,7 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 	}
 }
 
-// lookupSandbox returns the sandbox record as any (DB row map or memStore record).
+// lookupSandbox returns the sandbox record.
 func (s *Server) lookupSandbox(r *http.Request, id, userID string) (any, bool) {
 	if s.db != nil {
 		type dbRow struct {

@@ -6,11 +6,14 @@ metadata:
   labels:
     {{- include "sandlock.labels" . | nindent 4 }}
 rules:
-  - apiGroups: ["sandlock.dev"]
+  - apiGroups: ["agents.x-k8s.io"]
     resources: ["sandboxes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxclaims"]
     verbs: ["get", "list", "watch", "create", "delete"]
-  - apiGroups: ["sandlock.dev"]
-    resources: ["sandboxes/status"]
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxclaims/status"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -26,31 +29,5 @@ subjects:
     namespace: {{ include "sandlock.systemNamespace" . }}
 roleRef:
   kind: Role
-  name: {{ include "sandlock.fullname" . }}-controlplane
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "sandlock.fullname" . }}-controlplane
-  labels:
-    {{- include "sandlock.labels" . | nindent 4 }}
-rules:
-  - apiGroups: ["sandlock.dev"]
-    resources: ["sandboxpools"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ include "sandlock.fullname" . }}-controlplane
-  labels:
-    {{- include "sandlock.labels" . | nindent 4 }}
-subjects:
-  - kind: ServiceAccount
-    name: sandlock-controlplane
-    namespace: {{ include "sandlock.systemNamespace" . }}
-roleRef:
-  kind: ClusterRole
   name: {{ include "sandlock.fullname" . }}-controlplane
   apiGroup: rbac.authorization.k8s.io

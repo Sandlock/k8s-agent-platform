@@ -1,0 +1,13 @@
+{{- if .Values.pool.enabled }}
+apiVersion: extensions.agents.x-k8s.io/v1alpha1
+kind: SandboxWarmPool
+metadata:
+  name: claude-code
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.pool.targetReady }}
+  sandboxTemplateRef:
+    name: claude-code
+{{- end }}

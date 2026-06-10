@@ -9,32 +9,28 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sandlock/k8s-agent-platform/internal/pool"
-	"github.com/sandlock/k8s-agent-platform/internal/provider"
 	webui "github.com/sandlock/k8s-agent-platform/web"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Server holds shared dependencies for all HTTP handlers.
 type Server struct {
-	k8s      client.Client
-	prov     provider.Provider
-	poolMgr  *pool.Manager
-	db       *pgxpool.Pool // nil when DATABASE_URL is not set
+	k8s       client.Client
+	sandboxNS string
+	db        *pgxpool.Pool // nil when DATABASE_URL is not set
 
-	// in-memory fallback when DB is unavailable (M1 dev mode)
-	mu        sync.RWMutex
-	memStore  map[string]*sandboxRecord
+	// in-memory fallback when DB is unavailable (dev mode)
+	mu       sync.RWMutex
+	memStore map[string]*sandboxRecord
 }
 
 // NewServer creates a Server. db may be nil for no-auth dev mode.
-func NewServer(k8s client.Client, prov provider.Provider, poolMgr *pool.Manager, db *pgxpool.Pool) *Server {
+func NewServer(k8s client.Client, sandboxNS string, db *pgxpool.Pool) *Server {
 	return &Server{
-		k8s:      k8s,
-		prov:     prov,
-		poolMgr:  poolMgr,
-		db:       db,
-		memStore: make(map[string]*sandboxRecord),
+		k8s:       k8s,
+		sandboxNS: sandboxNS,
+		db:        db,
+		memStore:  make(map[string]*sandboxRecord),
 	}
 }
 
