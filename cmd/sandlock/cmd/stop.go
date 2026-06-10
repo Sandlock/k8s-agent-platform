@@ -22,10 +22,14 @@ func init() {
 func runStop(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	server := viper.GetString("server")
+	token := viper.GetString("token")
 
 	req, err := http.NewRequest(http.MethodDelete, server+"/v1/sandboxes/"+id, nil)
 	if err != nil {
 		return err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -36,6 +40,9 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if resp.StatusCode == http.StatusNoContent {
 		fmt.Printf("Sandbox %s stopped.\n", id)
 		return nil
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("not authenticated — run: sandlock login")
 	}
 	return fmt.Errorf("server returned %s", resp.Status)
 }
