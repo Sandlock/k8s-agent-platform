@@ -20,7 +20,6 @@ export default function CreateSandbox({ onCreated, onCancel }: Props) {
       const { sandboxId } = await api.createSandbox({
         harness: 'claude-code',
         anthropicKey: apiKey || undefined,
-        useStoredKey: !apiKey,
         repoUrl: repoUrl || undefined,
       })
       onCreated(sandboxId)

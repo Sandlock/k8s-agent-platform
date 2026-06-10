@@ -49,15 +49,11 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 
 	userID := userIDFromCtx(r.Context())
 
-	// Resolve API key.
+	// Resolve API key — fall back to stored key, then proceed with empty key
+	// (Claude Code will prompt for one inside the terminal if needed).
 	apiKey := req.AnthropicKey
-	if apiKey == "" && req.UseStoredKey && s.db != nil {
-		var err error
-		apiKey, err = s.storedKeyForUser(r, userID)
-		if err != nil || apiKey == "" {
-			http.Error(w, "no stored key found — POST /v1/keys first", http.StatusBadRequest)
-			return
-		}
+	if apiKey == "" && s.db != nil {
+		apiKey, _ = s.storedKeyForUser(r, userID)
 	}
 	ctx := r.Context()
 
