@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "sandlock.labels" . | nindent 4 }}
 spec:
+  service: true
+  envVarsInjectionPolicy: Disallowed
   podTemplate:
     spec:
       securityContext:
@@ -44,3 +46,20 @@ spec:
               cpu: "2"
               memory: 2Gi
       restartPolicy: OnFailure
+  networkPolicy:
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: {{ include "sandlock.systemNamespace" . }}
+        ports:
+          - port: 8080
+            protocol: TCP
+          - port: 8081
+            protocol: TCP
+    egress:
+      - ports:
+          - port: 443
+            protocol: TCP
+          - port: 53
+            protocol: UDP
