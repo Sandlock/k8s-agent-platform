@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/sandlock/k8s-agent-platform/internal/api"
 	"github.com/sandlock/k8s-agent-platform/internal/auth"
@@ -58,6 +59,7 @@ func main() {
 		}
 		seedAdmin(context.Background(), dbPool)
 		srv = api.NewServer(k8sClient, sandboxNS, dbPool)
+		go srv.RunReconciler(context.Background(), 30*time.Second)
 	} else {
 		log.Println("DATABASE_URL not set — running without DB (no auth, in-memory sandbox store)")
 		srv = api.NewServer(k8sClient, sandboxNS, nil)
