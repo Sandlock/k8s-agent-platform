@@ -107,6 +107,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 // Returns the claim ref ("claim/<ns>/<name>") and the sandbox service FQDN.
 func (s *Server) claimFromPool(ctx context.Context, harness string, timeout time.Duration) (string, string, error) {
 	warmPool := extensionsv1alpha1.WarmPoolPolicyDefault
+	ttl := int32(10)
 	claim := &extensionsv1alpha1.SandboxClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "sc-",
@@ -116,7 +117,8 @@ func (s *Server) claimFromPool(ctx context.Context, harness string, timeout time
 			TemplateRef: extensionsv1alpha1.SandboxTemplateRef{Name: harness},
 			WarmPool:    &warmPool,
 			Lifecycle: &extensionsv1alpha1.Lifecycle{
-				ShutdownPolicy: extensionsv1alpha1.ShutdownPolicyDelete,
+				ShutdownPolicy:          extensionsv1alpha1.ShutdownPolicyDelete,
+				TTLSecondsAfterFinished: &ttl,
 			},
 		},
 	}

@@ -16,6 +16,17 @@ import (
 	"golang.org/x/term"
 )
 
+func stopSandbox(id, server, token string) {
+	req, err := http.NewRequest(http.MethodDelete, server+"/v1/sandboxes/"+id, nil)
+	if err != nil {
+		return
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	http.DefaultClient.Do(req) //nolint:errcheck
+}
+
 var attachCmd = &cobra.Command{
 	Use:   "attach <sandbox-id>",
 	Short: "Attach your terminal directly to a running sandbox",
@@ -55,12 +66,13 @@ func attach(id, server, token string) error {
 	}
 	defer term.Restore(fd, oldState)
 
-	// Restore terminal on SIGINT/SIGTERM so the shell isn't left in raw mode.
+	// Restore terminal and stop sandbox on SIGINT/SIGTERM.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
 		term.Restore(fd, oldState)
+		stopSandbox(id, server, token)
 		os.Exit(0)
 	}()
 
@@ -76,5 +88,7 @@ func attach(id, server, token string) error {
 	}()
 
 	<-done
+	// Pod side closed (harness exited) — delete the sandbox record and claim.
+	stopSandbox(id, server, token)
 	return nil
 }
