@@ -295,9 +295,26 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	// Subscribe before replaying so we don't miss output between the two.
+	// Subscribe before replaying so we don't miss live output between the two.
 	ch := s.bcast.subscribe()
 	defer s.bcast.unsubscribe(ch)
+
+	// Wait for the client's first resize message before sending scrollback.
+	// This ensures the PTY is resized to the client's actual dimensions before
+	// the replayed bytes are rendered, so lines wrap correctly.
+	{
+		_, msg, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		var size struct {
+			Rows uint16 `json:"rows"`
+			Cols uint16 `json:"cols"`
+		}
+		if json.Unmarshal(msg, &size) == nil && size.Rows > 0 && size.Cols > 0 {
+			pty.Setsize(ptmx, &pty.Winsize{Rows: size.Rows, Cols: size.Cols}) //nolint:errcheck
+		}
+	}
 
 	// Replay everything the PTY produced before this connection.
 	if snap := s.scroll.snapshot(); len(snap) > 0 {
