@@ -23,6 +23,7 @@ func init() {
 	createCmd.Flags().String("key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
 	createCmd.Flags().Bool("use-stored-key", false, "Use the key stored via `sandlock keys store`")
 	createCmd.Flags().String("repo", "", "Optional repo URL to shallow-clone into the sandbox")
+	createCmd.Flags().Bool("select-repo", false, "Interactively pick a GitHub repo to clone into the sandbox")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -34,6 +35,25 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	harness, _ := cmd.Flags().GetString("harness")
 	repo, _ := cmd.Flags().GetString("repo")
 	useStored, _ := cmd.Flags().GetBool("use-stored-key")
+	selectRepo, _ := cmd.Flags().GetBool("select-repo")
+
+	if selectRepo {
+		token := githubToken()
+		if token == "" {
+			return fmt.Errorf("no GitHub token — run `sandlock github token` first or set GITHUB_TOKEN")
+		}
+		repos, err := fetchGitHubRepos(token)
+		if err != nil {
+			return err
+		}
+		repo, err = pickRepo(repos)
+		if err != nil {
+			return err
+		}
+		if repo == "" {
+			return fmt.Errorf("no repo selected")
+		}
+	}
 	server := viper.GetString("server")
 	token := viper.GetString("token")
 
@@ -42,6 +62,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"anthropicKey": key,
 		"repoUrl":      repo,
 		"useStoredKey": useStored,
+		"githubToken":  githubToken(),
 	}
 	body, _ := json.Marshal(payload)
 

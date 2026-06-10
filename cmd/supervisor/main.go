@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -110,7 +111,13 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	}
 
 	if req.RepoURL != "" {
-		clone := exec.Command("git", "clone", "--depth=1", req.RepoURL, workDir)
+		cloneURL := req.RepoURL
+		if req.GitHubToken != "" {
+			// Inject PAT so private repos clone without a credential prompt.
+			cloneURL = strings.Replace(cloneURL, "https://github.com/",
+				"https://x-access-token:"+req.GitHubToken+"@github.com/", 1)
+		}
+		clone := exec.Command("git", "clone", "--depth=1", cloneURL, workDir)
 		clone.Stdout = os.Stdout
 		clone.Stderr = os.Stderr
 		if err := clone.Run(); err != nil {
@@ -119,13 +126,16 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	}
 
 	harness := harnessCmd(req, workDir)
-	// Key goes into child env only — never argv, never disk.
+	// Keys go into child env only — never argv, never disk.
 	harness.Env = append(os.Environ(),
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOME=/home/ubuntu",
 	)
 	if req.AnthropicKey != "" {
 		harness.Env = append(harness.Env, "ANTHROPIC_API_KEY="+req.AnthropicKey)
+	}
+	if req.GitHubToken != "" {
+		harness.Env = append(harness.Env, "GITHUB_TOKEN="+req.GitHubToken)
 	}
 
 	ptmx, err := pty.Start(harness)

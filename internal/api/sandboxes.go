@@ -34,6 +34,7 @@ type createSandboxRequest struct {
 	AnthropicKey string `json:"anthropicKey,omitempty"`
 	UseStoredKey bool   `json:"useStoredKey,omitempty"`
 	RepoURL      string `json:"repoUrl,omitempty"`
+	GitHubToken  string `json:"githubToken,omitempty"`
 }
 
 func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +70,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 
 	// Send Claim to supervisor — key lives only in this in-memory call.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.Harness, req.RepoURL); err != nil {
+	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
@@ -209,8 +210,8 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
-func claimSupervisor(ctx context.Context, url, key, harness, repoURL string) error {
-	body, _ := json.Marshal(proto.ClaimRequest{AnthropicKey: key, Harness: harness, RepoURL: repoURL})
+func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL string) error {
+	body, _ := json.Marshal(proto.ClaimRequest{AnthropicKey: key, GitHubToken: githubToken, Harness: harness, RepoURL: repoURL})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
