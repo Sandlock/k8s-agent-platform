@@ -75,9 +75,11 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 }
 
 func bearerToken(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if after, ok := strings.CutPrefix(h, "Bearer "); ok {
-		return strings.TrimSpace(after)
+	if h := r.Header.Get("Authorization"); h != "" {
+		if after, ok := strings.CutPrefix(h, "Bearer "); ok {
+			return strings.TrimSpace(after)
+		}
 	}
-	return ""
+	// WebSocket clients can't set headers; accept token as query param.
+	return r.URL.Query().Get("token")
 }

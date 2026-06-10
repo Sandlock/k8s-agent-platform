@@ -73,5 +73,6 @@ export interface CreateSandboxBody {
 
 export function terminalWsUrl(id: string) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.host}/v1/sandboxes/${id}/terminal`
+  const t = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${proto}://${location.host}/v1/sandboxes/${id}/terminal${t}`
 }
