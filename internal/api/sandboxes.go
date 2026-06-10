@@ -286,8 +286,14 @@ func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {
 	switch v := sb.(type) {
 	case *sandboxRecord:
 		ref = v.ProviderRef
-	case map[string]any:
-		ref, _ = v["providerRef"].(string)
+	default:
+		_ = v
+		if s.db != nil {
+			s.db.QueryRow(r.Context(),
+				`SELECT provider_ref FROM sandboxes WHERE id=$1 AND user_id=$2`,
+				id, userID,
+			).Scan(&ref)
+		}
 	}
 
 	if s.db != nil {
