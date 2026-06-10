@@ -81,13 +81,12 @@ func attach(id, server, token string) error {
 		}
 	}()
 
-	// Restore terminal and stop sandbox on SIGINT/SIGTERM.
+	// Restore terminal on SIGINT/SIGTERM.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
 		term.Restore(fd, oldState)
-		stopSandbox(id, server, token)
 		os.Exit(0)
 	}()
 
@@ -122,8 +121,6 @@ func attach(id, server, token string) error {
 	}()
 
 	<-done
-	// Pod side closed (harness exited) — delete the sandbox record and claim.
-	stopSandbox(id, server, token)
 	return nil
 }
 

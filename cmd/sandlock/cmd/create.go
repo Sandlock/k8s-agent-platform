@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -25,6 +27,7 @@ func init() {
 	createCmd.Flags().String("repo", "", "Optional repo URL to shallow-clone into the sandbox")
 	createCmd.Flags().Bool("select-repo", false, "Interactively pick a GitHub repo to clone into the sandbox")
 	createCmd.Flags().BoolP("detach", "d", false, "Create sandbox but do not attach — print the sandbox ID and exit")
+	createCmd.Flags().Bool("rm", false, "Stop and delete the sandbox when the session ends")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -38,6 +41,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	useStored, _ := cmd.Flags().GetBool("use-stored-key")
 	selectRepo, _ := cmd.Flags().GetBool("select-repo")
 	detach, _ := cmd.Flags().GetBool("detach")
+	rm, _ := cmd.Flags().GetBool("rm")
 
 	if selectRepo {
 		token := githubToken()
@@ -95,6 +99,22 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Println(result.SandboxID)
 		return nil
 	}
+	if rm {
+		// Ensure sandbox is deleted on SIGINT/SIGTERM too, since attach's
+		// signal handler calls os.Exit before we can run the cleanup below.
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sig
+			stopSandbox(result.SandboxID, server, token)
+			os.Exit(0)
+		}()
+	}
+
 	fmt.Fprintf(os.Stderr, "Sandbox %s ready — connecting...\n", result.SandboxID)
-	return attach(result.SandboxID, server, token)
+	attachErr := attach(result.SandboxID, server, token)
+	if rm {
+		stopSandbox(result.SandboxID, server, token)
+	}
+	return attachErr
 }
