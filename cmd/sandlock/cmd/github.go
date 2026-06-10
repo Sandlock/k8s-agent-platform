@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -92,12 +94,23 @@ func runGithubRepos(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// githubToken returns the PAT from config or GITHUB_TOKEN env var.
+// githubToken returns a token from (in order): sandlock config, GITHUB_TOKEN
+// env var, or the local gh CLI's active token.
 func githubToken() string {
 	if t := viper.GetString("github_token"); t != "" {
 		return t
 	}
-	return os.Getenv("GITHUB_TOKEN")
+	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
+		return t
+	}
+	// Fall back to the local gh CLI if the user has it authenticated.
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err == nil {
+		if t := strings.TrimSpace(string(out)); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // ghRepo is a single entry from the GitHub repos API.
