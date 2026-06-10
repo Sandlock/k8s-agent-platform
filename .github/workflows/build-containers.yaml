@@ -26,9 +26,6 @@ jobs:
           - image: supervisor
             dockerfile: images/claude-code/Dockerfile
             build-args: ""
-          - image: operator
-            dockerfile: build/Dockerfile.operator
-            build-args: BINARY=operator
           - image: controlplane
             dockerfile: build/Dockerfile.controlplane
             build-args: ""
