@@ -64,15 +64,17 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	id := uuid.New().String()
+
 	// Send Claim to supervisor — key lives only in this in-memory call.
+	// Include a callback so the supervisor can notify us when the harness exits.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL); err != nil {
+	callbackURL := fmt.Sprintf("http://%s/internal/sandboxes/%s/exited", r.Host, id)
+	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, callbackURL); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
 	}
-
-	id := uuid.New().String()
 	if s.db != nil {
 		_, err = s.db.Exec(ctx,
 			`INSERT INTO sandboxes(id, user_id, harness, repo_url, status, provider_ref, expires_at)
@@ -206,8 +208,8 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
-func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL string) error {
-	body, _ := json.Marshal(proto.ClaimRequest{AnthropicKey: key, GitHubToken: githubToken, Harness: harness, RepoURL: repoURL})
+func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL, callbackURL string) error {
+	body, _ := json.Marshal(proto.ClaimRequest{AnthropicKey: key, GitHubToken: githubToken, Harness: harness, RepoURL: repoURL, ExitCallbackURL: callbackURL})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -271,6 +273,31 @@ func (s *Server) getSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sb)
+}
+
+// sandboxExited is called by the supervisor when the harness process exits.
+// It marks the sandbox gone and deletes the SandboxClaim.
+func (s *Server) sandboxExited(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var ref string
+	if s.db != nil {
+		s.db.QueryRow(r.Context(),
+			`UPDATE sandboxes SET status='gone' WHERE id=$1 RETURNING provider_ref`, id,
+		).Scan(&ref)
+	} else {
+		s.mu.Lock()
+		if rec, ok := s.memStore[id]; ok {
+			ref = rec.ProviderRef
+			rec.Status = "gone"
+		}
+		s.mu.Unlock()
+	}
+
+	if ref != "" {
+		s.destroyClaim(r.Context(), ref)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {

@@ -45,6 +45,10 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
+	// Internal callback — supervisor notifies us when a harness exits.
+	// Only reachable in-cluster; no auth token needed.
+	r.Post("/internal/sandboxes/{id}/exited", s.sandboxExited)
+
 	// Web dashboard — serve embedded web/dist, fallback to index.html for SPA routing.
 	distFS, _ := fs.Sub(webui.Dist, "dist")
 	fileServer := http.FileServer(http.FS(distFS))
