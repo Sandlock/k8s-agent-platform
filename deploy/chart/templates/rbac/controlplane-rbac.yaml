@@ -31,3 +31,30 @@ roleRef:
   kind: Role
   name: {{ include "sandlock.fullname" . }}-controlplane
   apiGroup: rbac.authorization.k8s.io
+---
+# ClusterRole required for the reconciler to list SandboxClaims across all namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sandlock.fullname" . }}-controlplane
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxclaims"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sandlock.fullname" . }}-controlplane
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: sandlock-controlplane
+    namespace: {{ include "sandlock.systemNamespace" . }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "sandlock.fullname" . }}-controlplane
+  apiGroup: rbac.authorization.k8s.io
