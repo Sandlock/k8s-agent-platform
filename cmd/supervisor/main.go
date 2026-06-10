@@ -111,13 +111,14 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	}
 
 	if req.RepoURL != "" {
-		cloneURL := req.RepoURL
-		if req.GitHubToken != "" {
-			// Inject PAT so private repos clone without a credential prompt.
-			cloneURL = strings.Replace(cloneURL, "https://github.com/",
-				"https://x-access-token:"+req.GitHubToken+"@github.com/", 1)
+		var clone *exec.Cmd
+		if strings.Contains(req.RepoURL, "github.com") && req.GitHubToken != "" {
+			// Use gh CLI so the token never appears in argv or the clone URL.
+			clone = exec.Command("gh", "repo", "clone", req.RepoURL, workDir, "--", "--depth=1")
+			clone.Env = append(os.Environ(), "GITHUB_TOKEN="+req.GitHubToken)
+		} else {
+			clone = exec.Command("git", "clone", "--depth=1", req.RepoURL, workDir)
 		}
-		clone := exec.Command("git", "clone", "--depth=1", cloneURL, workDir)
 		clone.Stdout = os.Stdout
 		clone.Stderr = os.Stderr
 		if err := clone.Run(); err != nil {
