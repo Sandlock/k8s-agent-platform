@@ -18,7 +18,6 @@ type Server struct {
 	k8s       client.Client
 	sandboxNS string
 	db        *pgxpool.Pool // nil when DATABASE_URL is not set
-	selfURL   string        // in-cluster base URL used for supervisor callbacks
 
 	// in-memory fallback when DB is unavailable (dev mode)
 	mu       sync.RWMutex
@@ -27,12 +26,11 @@ type Server struct {
 
 // NewServer creates a Server. db may be nil for no-auth dev mode.
 // selfURL is the base URL the supervisor can reach this server at (in-cluster).
-func NewServer(k8s client.Client, sandboxNS string, db *pgxpool.Pool, selfURL string) *Server {
+func NewServer(k8s client.Client, sandboxNS string, db *pgxpool.Pool) *Server {
 	return &Server{
 		k8s:       k8s,
 		sandboxNS: sandboxNS,
 		db:        db,
-		selfURL:   selfURL,
 		memStore:  make(map[string]*sandboxRecord),
 	}
 }
@@ -47,10 +45,6 @@ func (s *Server) Handler() http.Handler {
 	// Health probes.
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-
-	// Internal callback — supervisor notifies us when a harness exits.
-	// Only reachable in-cluster; no auth token needed.
-	r.Post("/internal/sandboxes/{id}/exited", s.sandboxExited)
 
 	// Web dashboard — serve embedded web/dist, fallback to index.html for SPA routing.
 	distFS, _ := fs.Sub(webui.Dist, "dist")

@@ -10,7 +10,6 @@ type ClaimRequest struct {
 	Harness         string `json:"harness"`
 	RepoURL         string `json:"repoUrl,omitempty"`
 	GitHubToken     string `json:"githubToken,omitempty"`
-	ExitCallbackURL string `json:"exitCallbackUrl,omitempty"`
 }
 
 // ClaimResponse is returned by the supervisor after a successful claim.

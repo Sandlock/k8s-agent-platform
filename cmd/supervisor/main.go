@@ -113,12 +113,11 @@ func (b *broadcaster) send(p []byte) {
 }
 
 type supervisor struct {
-	claimed         atomic.Bool
-	ptmx            *os.File
-	mu              sync.Mutex
-	scroll          *scrollback
-	bcast           *broadcaster
-	exitCallbackURL string
+	claimed atomic.Bool
+	ptmx    *os.File
+	mu      sync.Mutex
+	scroll  *scrollback
+	bcast   *broadcaster
 }
 
 func main() {
@@ -152,9 +151,6 @@ func (s *supervisor) handleClaim(w http.ResponseWriter, r *http.Request) {
 		s.claimed.Store(false)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
-	}
-	if req.ExitCallbackURL != "" {
-		s.exitCallbackURL = req.ExitCallbackURL
 	}
 	go func() {
 		if err := s.launch(req); err != nil {
@@ -240,20 +236,7 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	}()
 
 	err = harness.Wait()
-	log.Printf("harness exited: %v — notifying control plane", err)
-	if s.exitCallbackURL != "" {
-		// Retry a few times in case the control plane is briefly unreachable.
-		for i := 0; i < 5; i++ {
-			resp, cerr := http.Post(s.exitCallbackURL, "application/json", nil)
-			if cerr == nil {
-				resp.Body.Close()
-				log.Printf("exit callback delivered (attempt %d)", i+1)
-				break
-			}
-			log.Printf("exit callback attempt %d failed: %v", i+1, cerr)
-			time.Sleep(time.Duration(i+1) * time.Second)
-		}
-	}
+	log.Printf("harness exited: %v", err)
 	os.Exit(0)
 	return nil
 }

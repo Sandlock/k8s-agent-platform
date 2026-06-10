@@ -41,9 +41,6 @@ func main() {
 	addr := getenv("LISTEN_ADDR", ":8090")
 	dbURL := os.Getenv("DATABASE_URL")
 	sandboxNS := getenv("SANDBOX_NAMESPACE", "sandboxes")
-	// SELF_URL: in-cluster base URL for supervisor exit callbacks.
-	// Defaults to the Kubernetes service DNS so the callback never leaves the cluster.
-	selfURL := getenv("SELF_URL", "http://sandlock-controlplane.sandlock-system.svc.cluster.local:8090")
 
 	cfg, err := ctrlconfig.GetConfig()
 	if err != nil {
@@ -61,11 +58,11 @@ func main() {
 			log.Fatalf("db: %v", err)
 		}
 		seedAdmin(context.Background(), dbPool)
-		srv = api.NewServer(k8sClient, sandboxNS, dbPool, selfURL)
+		srv = api.NewServer(k8sClient, sandboxNS, dbPool)
 		go srv.RunReconciler(context.Background(), 30*time.Second)
 	} else {
 		log.Println("DATABASE_URL not set — running without DB (no auth, in-memory sandbox store)")
-		srv = api.NewServer(k8sClient, sandboxNS, nil, selfURL)
+		srv = api.NewServer(k8sClient, sandboxNS, nil)
 	}
 
 	log.Printf("control plane listening on %s", addr)
