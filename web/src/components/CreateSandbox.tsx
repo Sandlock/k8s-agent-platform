@@ -9,7 +9,6 @@ interface Props {
 export default function CreateSandbox({ onCreated, onCancel }: Props) {
   const [apiKey, setApiKey] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
-  const [useStored, setUseStored] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -20,8 +19,8 @@ export default function CreateSandbox({ onCreated, onCancel }: Props) {
     try {
       const { sandboxId } = await api.createSandbox({
         harness: 'claude-code',
-        anthropicKey: useStored ? undefined : apiKey,
-        useStoredKey: useStored,
+        anthropicKey: apiKey || undefined,
+        useStoredKey: !apiKey,
         repoUrl: repoUrl || undefined,
       })
       onCreated(sandboxId)
@@ -36,18 +35,11 @@ export default function CreateSandbox({ onCreated, onCancel }: Props) {
     <div className="card" style={{ marginBottom: 24 }}>
       <h2 style={{ fontSize: 16, marginBottom: 16 }}>New sandbox</h2>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-          <input type="checkbox" checked={useStored} onChange={e => setUseStored(e.target.checked)} style={{ width: 'auto' }} />
-          Use stored API key
-        </label>
-        {!useStored && (
-          <input
-            placeholder="Anthropic API key (sk-ant-…)"
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            required
-          />
-        )}
+        <input
+          placeholder="Anthropic API key (optional — uses stored key if blank)"
+          value={apiKey}
+          onChange={e => setApiKey(e.target.value)}
+        />
         <input
           placeholder="Repo URL (optional)"
           value={repoUrl}
