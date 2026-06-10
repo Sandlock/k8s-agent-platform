@@ -18,6 +18,7 @@ type Server struct {
 	k8s       client.Client
 	sandboxNS string
 	db        *pgxpool.Pool // nil when DATABASE_URL is not set
+	selfURL   string        // in-cluster base URL used for supervisor callbacks
 
 	// in-memory fallback when DB is unavailable (dev mode)
 	mu       sync.RWMutex
@@ -25,11 +26,13 @@ type Server struct {
 }
 
 // NewServer creates a Server. db may be nil for no-auth dev mode.
-func NewServer(k8s client.Client, sandboxNS string, db *pgxpool.Pool) *Server {
+// selfURL is the base URL the supervisor can reach this server at (in-cluster).
+func NewServer(k8s client.Client, sandboxNS string, db *pgxpool.Pool, selfURL string) *Server {
 	return &Server{
 		k8s:       k8s,
 		sandboxNS: sandboxNS,
 		db:        db,
+		selfURL:   selfURL,
 		memStore:  make(map[string]*sandboxRecord),
 	}
 }

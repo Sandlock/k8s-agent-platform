@@ -69,7 +69,11 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	// Send Claim to supervisor — key lives only in this in-memory call.
 	// Include a callback so the supervisor can notify us when the harness exits.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	callbackURL := fmt.Sprintf("http://%s/internal/sandboxes/%s/exited", r.Host, id)
+	callbackBase := s.selfURL
+	if callbackBase == "" {
+		callbackBase = "http://" + r.Host
+	}
+	callbackURL := fmt.Sprintf("%s/internal/sandboxes/%s/exited", callbackBase, id)
 	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, callbackURL); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
