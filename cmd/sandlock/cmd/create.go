@@ -24,6 +24,7 @@ func init() {
 	createCmd.Flags().Bool("use-stored-key", false, "Use the key stored via `sandlock keys store`")
 	createCmd.Flags().String("repo", "", "Optional repo URL to shallow-clone into the sandbox")
 	createCmd.Flags().Bool("select-repo", false, "Interactively pick a GitHub repo to clone into the sandbox")
+	createCmd.Flags().BoolP("detach", "d", false, "Create sandbox but do not attach — print the sandbox ID and exit")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -36,6 +37,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	repo, _ := cmd.Flags().GetString("repo")
 	useStored, _ := cmd.Flags().GetBool("use-stored-key")
 	selectRepo, _ := cmd.Flags().GetBool("select-repo")
+	detach, _ := cmd.Flags().GetBool("detach")
 
 	if selectRepo {
 		token := githubToken()
@@ -89,6 +91,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if detach {
+		fmt.Println(result.SandboxID)
+		return nil
+	}
 	fmt.Fprintf(os.Stderr, "Sandbox %s ready — connecting...\n", result.SandboxID)
 	return attach(result.SandboxID, server, token)
 }
