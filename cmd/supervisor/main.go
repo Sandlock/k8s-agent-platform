@@ -32,25 +32,103 @@ import (
 )
 
 const (
-	controlAddr  = ":8080"
-	terminalAddr = ":8081"
+	controlAddr     = ":8080"
+	terminalAddr    = ":8081"
+	scrollbackBytes = 256 << 10 // 256 KB
 )
 
-type supervisor struct {
-	claimed atomic.Bool // set to true after first Claim; rejects subsequent ones
-	ptmx    *os.File    // master end of the PTY (set after Claim)
-	mu      sync.Mutex
+// scrollback is a fixed-size ring buffer accumulating all PTY output.
+type scrollback struct {
+	mu  sync.Mutex
+	buf []byte
+	pos int // next write position
+	n   int // total bytes ever written
 }
 
+func newScrollback(size int) *scrollback {
+	return &scrollback{buf: make([]byte, size)}
+}
+
+func (s *scrollback) write(p []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, b := range p {
+		s.buf[s.pos] = b
+		s.pos = (s.pos + 1) % len(s.buf)
+		s.n++
+	}
+}
+
+// snapshot returns all buffered bytes in chronological order.
+func (s *scrollback) snapshot() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	size := len(s.buf)
+	if s.n <= size {
+		out := make([]byte, s.n)
+		copy(out, s.buf[:s.n])
+		return out
+	}
+	out := make([]byte, size)
+	copy(out, s.buf[s.pos:])
+	copy(out[size-s.pos:], s.buf[:s.pos])
+	return out
+}
+
+// broadcaster fans PTY output out to all connected WebSocket clients.
+type broadcaster struct {
+	mu      sync.Mutex
+	clients map[chan []byte]struct{}
+}
+
+func newBroadcaster() *broadcaster {
+	return &broadcaster{clients: make(map[chan []byte]struct{})}
+}
+
+func (b *broadcaster) subscribe() chan []byte {
+	ch := make(chan []byte, 256)
+	b.mu.Lock()
+	b.clients[ch] = struct{}{}
+	b.mu.Unlock()
+	return ch
+}
+
+func (b *broadcaster) unsubscribe(ch chan []byte) {
+	b.mu.Lock()
+	delete(b.clients, ch)
+	b.mu.Unlock()
+}
+
+func (b *broadcaster) send(p []byte) {
+	cp := make([]byte, len(p))
+	copy(cp, p)
+	b.mu.Lock()
+	for ch := range b.clients {
+		select {
+		case ch <- cp:
+		default: // slow client — drop rather than block PTY reader
+		}
+	}
+	b.mu.Unlock()
+}
+
+type supervisor struct {
+	claimed atomic.Bool
+	ptmx    *os.File
+	mu      sync.Mutex
+	scroll  *scrollback
+	bcast   *broadcaster
+}
 
 func main() {
-	sup := &supervisor{}
-
+	sup := &supervisor{
+		scroll: newScrollback(scrollbackBytes),
+		bcast:  newBroadcaster(),
+	}
 	go sup.serveTerminal()
 	sup.serveControl()
 }
 
-// serveControl listens for JSON control messages from the control plane.
 func (s *supervisor) serveControl() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /claim", s.handleClaim)
@@ -65,24 +143,20 @@ func (s *supervisor) serveControl() {
 
 func (s *supervisor) handleClaim(w http.ResponseWriter, r *http.Request) {
 	if s.claimed.Swap(true) {
-		// Single-use: reject second claim.
 		http.Error(w, "already claimed", http.StatusConflict)
 		return
 	}
-
 	var req proto.ClaimRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.claimed.Store(false)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-
 	go func() {
 		if err := s.launch(req); err != nil {
 			log.Printf("launch error: %v", err)
 		}
 	}()
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(proto.ClaimResponse{Status: "attached"})
 }
@@ -90,7 +164,6 @@ func (s *supervisor) handleClaim(w http.ResponseWriter, r *http.Request) {
 func (s *supervisor) handleStop(w http.ResponseWriter, r *http.Request) {
 	log.Println("stop received — exiting")
 	w.WriteHeader(http.StatusNoContent)
-	// Give the response time to flush before exiting.
 	go func() { os.Exit(0) }()
 }
 
@@ -103,7 +176,6 @@ func (s *supervisor) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(proto.HeartbeatResponse{Phase: phase})
 }
 
-// launch optionally clones a repo, then starts the agent harness with a PTY.
 func (s *supervisor) launch(req proto.ClaimRequest) error {
 	workDir := "/workspace"
 	if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -113,7 +185,6 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	if req.RepoURL != "" {
 		var clone *exec.Cmd
 		if strings.Contains(req.RepoURL, "github.com") && req.GitHubToken != "" {
-			// Use gh CLI so the token never appears in argv or the clone URL.
 			clone = exec.Command("gh", "repo", "clone", req.RepoURL, workDir, "--", "--depth=1")
 			clone.Env = append(os.Environ(), "GITHUB_TOKEN="+req.GitHubToken)
 		} else {
@@ -127,7 +198,6 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	}
 
 	harness := harnessCmd(req, workDir)
-	// Keys go into child env only — never argv, never disk.
 	harness.Env = append(os.Environ(),
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOME=/home/ubuntu",
@@ -149,15 +219,28 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	s.mu.Unlock()
 
 	log.Printf("harness %q started (pid %d)", req.Harness, harness.Process.Pid)
+
+	// Single PTY reader: tee into scrollback and broadcast to all WS clients.
+	go func() {
+		buf := make([]byte, 32<<10)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				s.scroll.write(buf[:n])
+				s.bcast.send(buf[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
 	err = harness.Wait()
 	log.Printf("harness exited: %v — pod will terminate", err)
-
-	// Die with the harness so the pod is single-use.
 	os.Exit(0)
 	return nil
 }
 
-// harnessCmd maps a harness name to an exec.Cmd running in workDir.
 func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
@@ -170,11 +253,9 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	return cmd
 }
 
-// serveTerminal accepts WebSocket connections and bridges them to the harness PTY.
 func (s *supervisor) serveTerminal() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleTerminalWS)
-
 	log.Printf("terminal bridge listening on %s", terminalAddr)
 	if err := http.ListenAndServe(terminalAddr, mux); err != nil {
 		log.Fatalf("terminal bridge: %v", err)
@@ -183,7 +264,7 @@ func (s *supervisor) serveTerminal() {
 
 func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // internal cluster traffic only
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		log.Printf("ws accept: %v", err)
@@ -191,7 +272,7 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
-	// Wait up to 10s for the PTY to be ready (claim starts it in a goroutine).
+	// Wait up to 10s for the PTY to be ready.
 	var ptmx *os.File
 	for i := 0; i < 100; i++ {
 		s.mu.Lock()
@@ -214,24 +295,36 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	// PTY → WebSocket: forward raw output as binary messages.
+	// Subscribe before replaying so we don't miss output between the two.
+	ch := s.bcast.subscribe()
+	defer s.bcast.unsubscribe(ch)
+
+	// Replay everything the PTY produced before this connection.
+	if snap := s.scroll.snapshot(); len(snap) > 0 {
+		if err := conn.Write(ctx, websocket.MessageBinary, snap); err != nil {
+			return
+		}
+	}
+
+	// Forward live PTY output to client.
 	go func() {
 		defer cancel()
-		buf := make([]byte, 32<<10)
 		for {
-			n, err := ptmx.Read(buf)
-			if n > 0 {
-				if werr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
+			select {
+			case <-ctx.Done():
+				return
+			case p, ok := <-ch:
+				if !ok {
 					return
 				}
-			}
-			if err != nil {
-				return
+				if err := conn.Write(ctx, websocket.MessageBinary, p); err != nil {
+					return
+				}
 			}
 		}
 	}()
 
-	// WebSocket → PTY: binary = keystrokes, text = resize JSON {"rows":N,"cols":N}.
+	// WebSocket → PTY: binary = keystrokes, text = resize JSON.
 	for {
 		mt, msg, err := conn.Read(ctx)
 		if err != nil {
