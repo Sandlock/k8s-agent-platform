@@ -16,6 +16,11 @@ import (
 	"golang.org/x/term"
 )
 
+const (
+	keyCtrlB = 0x02
+	keyD     = 0x64
+)
+
 func stopSandbox(id, server, token string) {
 	req, err := http.NewRequest(http.MethodDelete, server+"/v1/sandboxes/"+id, nil)
 	if err != nil {
@@ -61,7 +66,6 @@ func attach(id, server, token string) error {
 	}
 	defer conn.CloseNow()
 
-	// Put the local terminal into raw mode so keystrokes go straight to the PTY.
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -69,10 +73,8 @@ func attach(id, server, token string) error {
 	}
 	defer term.Restore(fd, oldState)
 
-	// Send initial window size so the PTY matches the local terminal immediately.
 	sendResize(conn, ctx, fd)
 
-	// Forward terminal resize events to the PTY.
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	go func() {
@@ -81,7 +83,7 @@ func attach(id, server, token string) error {
 		}
 	}()
 
-	// Restore terminal on SIGINT/SIGTERM.
+	// SIGINT/SIGTERM: restore terminal and exit without touching the sandbox.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -90,12 +92,12 @@ func attach(id, server, token string) error {
 		os.Exit(0)
 	}()
 
+	detach := make(chan struct{})
 	done := make(chan struct{}, 1)
 
-	// PTY output → local stdout (binary messages).
+	// PTY output → local stdout.
 	go func() {
 		defer func() { done <- struct{}{} }()
-		buf := make([]byte, 32<<10)
 		for {
 			_, msg, err := conn.Read(ctx)
 			if err != nil {
@@ -103,16 +105,46 @@ func attach(id, server, token string) error {
 			}
 			os.Stdout.Write(msg) //nolint:errcheck
 		}
-		_ = buf
 	}()
 
-	// Local stdin → PTY (binary messages).
+	// Local stdin → PTY, with Ctrl+B D detach interception.
 	go func() {
 		buf := make([]byte, 32<<10)
+		sawCtrlB := false
 		for {
 			n, err := os.Stdin.Read(buf)
 			if n > 0 {
-				conn.Write(ctx, websocket.MessageBinary, buf[:n]) //nolint:errcheck
+				// Scan for Ctrl+B D detach sequence.
+				out := buf[:n]
+				for i := 0; i < len(out); i++ {
+					b := out[i]
+					if sawCtrlB {
+						sawCtrlB = false
+						if b == keyD {
+							// Detach: send any bytes before the sequence, then signal detach.
+							if i > 1 {
+								conn.Write(ctx, websocket.MessageBinary, out[:i-1]) //nolint:errcheck
+							}
+							close(detach)
+							return
+						}
+						// Not a detach — forward the Ctrl+B and continue.
+						conn.Write(ctx, websocket.MessageBinary, []byte{keyCtrlB}) //nolint:errcheck
+					}
+					if b == keyCtrlB {
+						// Forward everything up to (not including) the Ctrl+B.
+						if i > 0 {
+							conn.Write(ctx, websocket.MessageBinary, out[:i]) //nolint:errcheck
+						}
+						out = out[i+1:]
+						i = -1
+						sawCtrlB = true
+						continue
+					}
+				}
+				if !sawCtrlB && len(out) > 0 {
+					conn.Write(ctx, websocket.MessageBinary, out) //nolint:errcheck
+				}
 			}
 			if err != nil {
 				return
@@ -120,7 +152,13 @@ func attach(id, server, token string) error {
 		}
 	}()
 
-	<-done
+	select {
+	case <-done:
+		// Pod side closed (harness exited).
+	case <-detach:
+		term.Restore(fd, oldState)
+		fmt.Fprintf(os.Stderr, "\r\n[detached — sandbox still running]\r\n")
+	}
 	return nil
 }
 
