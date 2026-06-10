@@ -25,14 +25,22 @@ export default function Terminal({ sandboxId }: Props) {
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ rows: term.rows, cols: term.cols }))
+    }
     ws.onmessage = (e) => {
       const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data
       term.write(data)
     }
     ws.onclose = () => term.writeln('\r\n\x1b[31m[disconnected]\x1b[0m')
 
+    const encoder = new TextEncoder()
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data)
+      if (ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data))
+    })
+
+    term.onResize(({ rows, cols }) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ rows, cols }))
     })
 
     const observer = new ResizeObserver(() => fit.fit())
