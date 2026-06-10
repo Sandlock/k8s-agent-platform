@@ -347,32 +347,27 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	cn := websocket.NetConn(ctx, client, websocket.MessageBinary)
-	pn := websocket.NetConn(ctx, pod, websocket.MessageBinary)
-
-	// pod → client: cancel ctx when pod closes so cn.Read unblocks.
+	// pod → client: preserve message type so binary PTY output and text resize acks pass through.
 	go func() {
-		buf := make([]byte, 32<<10)
+		defer cancel()
 		for {
-			n, err := pn.Read(buf)
-			if n > 0 {
-				cn.Write(buf[:n])
-			}
+			mt, msg, err := pod.Read(ctx)
 			if err != nil {
-				cancel()
+				return
+			}
+			if err := client.Write(ctx, mt, msg); err != nil {
 				return
 			}
 		}
 	}()
 
-	// client → pod
-	buf := make([]byte, 32<<10)
+	// client → pod: text resize messages and binary keystrokes both forwarded as-is.
 	for {
-		n, err := cn.Read(buf)
-		if n > 0 {
-			pn.Write(buf[:n])
-		}
+		mt, msg, err := client.Read(ctx)
 		if err != nil {
+			return
+		}
+		if err := pod.Write(ctx, mt, msg); err != nil {
 			return
 		}
 	}

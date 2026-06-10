@@ -10,7 +10,7 @@ CONTROLPLANE_IMG := $(IMG_REPO)/controlplane:$(IMG_TAG)
 GO := go
 DOCKER := docker
 
-.PHONY: all build test generate fmt vet \
+.PHONY: all build build-sandlock-darwin test generate fmt vet \
         web-install web-build web-dev \
         docker-build kind-up kind-down kind-load deploy-crds deploy undeploy
 
@@ -23,6 +23,10 @@ build:
 	$(GO) build -o bin/supervisor     ./cmd/supervisor
 	$(GO) build -o bin/controlplane   ./cmd/controlplane
 	$(GO) build -o bin/sandlock       ./cmd/sandlock
+
+build-sandlock-darwin:
+	GOOS=darwin GOARCH=amd64 $(GO) build -o bin/sandlock-darwin-amd64 ./cmd/sandlock
+	GOOS=darwin GOARCH=arm64 $(GO) build -o bin/sandlock-darwin-arm64 ./cmd/sandlock
 
 test:
 	$(GO) test ./... -v -count=1

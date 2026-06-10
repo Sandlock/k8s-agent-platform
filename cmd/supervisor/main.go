@@ -14,16 +14,16 @@ in the LICENSE file.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"sync"
-	"time"
 	"sync/atomic"
+	"time"
 
 	"github.com/creack/pty"
 	"github.com/coder/websocket"
@@ -200,8 +200,43 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bridge: WebSocket ↔ PTY using a net.Conn adapter for clean bidirectional copy.
-	netConn := websocket.NetConn(r.Context(), conn, websocket.MessageBinary)
-	go func() { io.Copy(ptmx, netConn) }()
-	io.Copy(netConn, ptmx)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	// PTY → WebSocket: forward raw output as binary messages.
+	go func() {
+		defer cancel()
+		buf := make([]byte, 32<<10)
+		for {
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				if werr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// WebSocket → PTY: binary = keystrokes, text = resize JSON {"rows":N,"cols":N}.
+	for {
+		mt, msg, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		switch mt {
+		case websocket.MessageBinary:
+			ptmx.Write(msg) //nolint:errcheck
+		case websocket.MessageText:
+			var size struct {
+				Rows uint16 `json:"rows"`
+				Cols uint16 `json:"cols"`
+			}
+			if json.Unmarshal(msg, &size) == nil && size.Rows > 0 && size.Cols > 0 {
+				pty.Setsize(ptmx, &pty.Winsize{Rows: size.Rows, Cols: size.Cols}) //nolint:errcheck
+			}
+		}
+	}
 }

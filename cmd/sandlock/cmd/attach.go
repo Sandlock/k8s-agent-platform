@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -52,7 +52,10 @@ func attach(id, server, token string) error {
 		hdr.Set("Authorization", "Bearer "+token)
 	}
 
-	conn, _, err := websocket.Dial(context.Background(), wsURL, &websocket.DialOptions{HTTPHeader: hdr})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: hdr})
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -66,6 +69,18 @@ func attach(id, server, token string) error {
 	}
 	defer term.Restore(fd, oldState)
 
+	// Send initial window size so the PTY matches the local terminal immediately.
+	sendResize(conn, ctx, fd)
+
+	// Forward terminal resize events to the PTY.
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	go func() {
+		for range winch {
+			sendResize(conn, ctx, fd)
+		}
+	}()
+
 	// Restore terminal and stop sandbox on SIGINT/SIGTERM.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -76,19 +91,51 @@ func attach(id, server, token string) error {
 		os.Exit(0)
 	}()
 
-	remote := websocket.NetConn(context.Background(), conn, websocket.MessageBinary)
-
 	done := make(chan struct{}, 1)
+
+	// PTY output → local stdout (binary messages).
 	go func() {
-		io.Copy(os.Stdout, remote)
-		done <- struct{}{}
+		defer func() { done <- struct{}{} }()
+		buf := make([]byte, 32<<10)
+		for {
+			_, msg, err := conn.Read(ctx)
+			if err != nil {
+				return
+			}
+			os.Stdout.Write(msg) //nolint:errcheck
+		}
+		_ = buf
 	}()
+
+	// Local stdin → PTY (binary messages).
 	go func() {
-		io.Copy(remote, os.Stdin)
+		buf := make([]byte, 32<<10)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if n > 0 {
+				conn.Write(ctx, websocket.MessageBinary, buf[:n]) //nolint:errcheck
+			}
+			if err != nil {
+				return
+			}
+		}
 	}()
 
 	<-done
 	// Pod side closed (harness exited) — delete the sandbox record and claim.
 	stopSandbox(id, server, token)
 	return nil
+}
+
+// sendResize reads the current terminal size and sends it as a JSON text message.
+func sendResize(conn *websocket.Conn, ctx context.Context, fd int) {
+	cols, rows, err := term.GetSize(fd)
+	if err != nil || cols == 0 || rows == 0 {
+		return
+	}
+	msg, _ := json.Marshal(struct {
+		Rows uint16 `json:"rows"`
+		Cols uint16 `json:"cols"`
+	}{Rows: uint16(rows), Cols: uint16(cols)})
+	conn.Write(ctx, websocket.MessageText, msg) //nolint:errcheck
 }
