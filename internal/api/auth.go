@@ -8,37 +8,6 @@ import (
 	"github.com/sandlock/k8s-agent-platform/internal/auth"
 )
 
-type registerRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-func (s *Server) register(w http.ResponseWriter, r *http.Request) {
-	if s.db == nil {
-		http.Error(w, "auth not available without DATABASE_URL", http.StatusNotImplemented)
-		return
-	}
-	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" || req.Password == "" {
-		http.Error(w, "username and password required", http.StatusBadRequest)
-		return
-	}
-	hash, err := auth.HashPassword(req.Password)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	var id string
-	err = s.db.QueryRow(r.Context(),
-		`INSERT INTO users(username, password_hash) VALUES($1,$2) RETURNING id`,
-		req.Username, hash,
-	).Scan(&id)
-	if err != nil {
-		http.Error(w, "username already taken", http.StatusConflict)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]string{"userId": id})
-}
 
 type loginRequest struct {
 	Username string `json:"username"`

@@ -57,7 +57,6 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	// Auth endpoints — no session required.
-	r.Post("/v1/auth/register", s.register)
 	r.Post("/v1/auth/login", s.login)
 	r.Post("/v1/auth/logout", s.logout)
 
