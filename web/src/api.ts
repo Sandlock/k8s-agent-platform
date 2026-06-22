@@ -1,6 +1,7 @@
 const BASE = ''  // same origin via vite proxy in dev; empty string = relative in prod
 
 let token = localStorage.getItem('sandlock_token') ?? ''
+let unauthorizedHandler: (() => void) | null = null
 
 export function setToken(t: string) {
   token = t
@@ -14,6 +15,10 @@ export function clearToken() {
 
 export function getToken() { return token }
 
+export function onUnauthorized(handler: () => void) {
+  unauthorizedHandler = handler
+}
+
 function headers(extra: Record<string, string> = {}) {
   const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra }
   if (token) h['Authorization'] = `Bearer ${token}`
@@ -26,6 +31,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     headers: headers(),
     body: body != null ? JSON.stringify(body) : undefined,
   })
+  if (res.status === 401) {
+    clearToken()
+    unauthorizedHandler?.()
+    throw new Error('Session expired — please log in again')
+  }
   if (!res.ok) throw new Error(await res.text())
   if (res.status === 204) return undefined as T
   return res.json()
