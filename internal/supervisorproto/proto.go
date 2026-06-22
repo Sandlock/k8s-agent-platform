@@ -14,6 +14,9 @@ type ClaimRequest struct {
 	// When non-nil the supervisor restores it before launching the harness
 	// so Claude Code can resume the previous session via --continue.
 	SessionSnapshot []byte `json:"sessionSnapshot,omitempty"`
+	// CallbackURL is the control-plane endpoint the supervisor POSTs a
+	// gzip+tar of ~/.claude/ to on harness exit (push-on-exit snapshot).
+	CallbackURL string `json:"callbackUrl,omitempty"`
 }
 
 // ClaimResponse is returned by the supervisor after a successful claim.

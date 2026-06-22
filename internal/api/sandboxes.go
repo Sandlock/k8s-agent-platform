@@ -89,9 +89,15 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build the callback URL so the supervisor can push the snapshot on harness exit.
+	callbackURL := ""
+	if s.selfURL != "" {
+		callbackURL = fmt.Sprintf("%s/v1/internal/snapshots/%s", s.selfURL, id)
+	}
+
 	// Send Claim to supervisor — key lives only in this in-memory call.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, sessionSnapshot); err != nil {
+	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, sessionSnapshot, callbackURL); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
@@ -230,13 +236,14 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
-func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL string, sessionSnapshot []byte) error {
+func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL string, sessionSnapshot []byte, callbackURL string) error {
 	body, _ := json.Marshal(proto.ClaimRequest{
 		AnthropicKey:    key,
 		GitHubToken:     githubToken,
 		Harness:         harness,
 		RepoURL:         repoURL,
 		SessionSnapshot: sessionSnapshot,
+		CallbackURL:     callbackURL,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -356,6 +363,55 @@ func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {
 }
 
 const maxSnapshotBytes = 15 << 20 // 15 MB
+
+// pushSnapshot is the cluster-internal callback that sandbox supervisors POST
+// to on harness exit, sending a gzip+tar of ~/.claude/ so the session is
+// saved even when the user exits Claude Code via the CLI rather than the UI.
+// No auth middleware — reachable only from within the cluster via NetworkPolicy.
+func (s *Server) pushSnapshot(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxSnapshotBytes))
+	if err != nil || len(raw) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	var userID, repoURL string
+	if err := s.db.QueryRow(r.Context(),
+		`SELECT user_id, repo_url FROM sandboxes WHERE id=$1`,
+		id,
+	).Scan(&userID, &repoURL); err != nil || repoURL == "" {
+		log.Printf("pushSnapshot: sandbox %s not found or no repo_url: %v", id, err)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	enc, err := auth.EncryptBytes(raw)
+	if err != nil {
+		log.Printf("pushSnapshot: encrypt: %v", err)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	_, err = s.db.Exec(r.Context(),
+		`INSERT INTO agent_snapshots(user_id, repo_url, snapshot)
+		 VALUES($1, $2, $3)
+		 ON CONFLICT (user_id, repo_url)
+		 DO UPDATE SET snapshot=EXCLUDED.snapshot, snapshot_at=NOW()`,
+		userID, repoURL, enc,
+	)
+	if err != nil {
+		log.Printf("pushSnapshot: db upsert: %v", err)
+	} else {
+		log.Printf("pushSnapshot: saved snapshot for sandbox %s (%d bytes)", id, len(raw))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
 
 // snapshotSession fetches the Claude Code session state from a live pod,
 // encrypts it, and upserts it into agent_snapshots.

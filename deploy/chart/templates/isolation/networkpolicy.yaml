@@ -61,4 +61,30 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+---
+# Allow sandbox pods to push session snapshots to the control plane on harness exit.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-snapshot-push-egress
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: sandlock-operator
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "sandlock.systemNamespace" . }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controlplane
+      ports:
+        - port: {{ .Values.controlplane.service.port }}
+          protocol: TCP
 {{- end }}

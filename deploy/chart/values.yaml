@@ -23,6 +23,10 @@ supervisor:
 controlplane:
   image: ""  # defaults to registry/owner/sandlock-controlplane:imageTag
   replicas: 1
+  # In-cluster URL that sandbox pods use to push session snapshots back to the
+  # control plane.  Defaults to the ClusterIP service URL; override only when
+  # you expose the control plane on a different in-cluster address.
+  selfUrl: ""  # default: http://sandlock-controlplane.<systemNamespace>.svc.cluster.local:<port>
   resources:
     limits:
       cpu: 500m

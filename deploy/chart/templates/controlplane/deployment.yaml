@@ -101,7 +101,7 @@ spec:
                   name: sandlock-admin
                   key: password
             - name: SELF_URL
-              value: "http://sandlock-controlplane.{{ include "sandlock.systemNamespace" . }}.svc.cluster.local:{{ .Values.controlplane.service.port }}"
+              value: {{ .Values.controlplane.selfUrl | default (printf "http://sandlock-controlplane.%s.svc.cluster.local:%d" (include "sandlock.systemNamespace" .) (.Values.controlplane.service.port | int)) | quote }}
           ports:
             - name: api
               containerPort: {{ .Values.controlplane.service.port }}

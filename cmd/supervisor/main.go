@@ -356,8 +356,41 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 
 	err = harness.Wait()
 	log.Printf("harness exited: %v", err)
+	if req.CallbackURL != "" {
+		pushSnapshotCallback(req.CallbackURL)
+	}
 	os.Exit(0)
 	return nil
+}
+
+// pushSnapshotCallback tars ~/.claude/ and POSTs it to the control plane so
+// the session is persisted when the user exits Claude Code via the CLI.
+func pushSnapshotCallback(callbackURL string) {
+	cloneDir := "/home/ubuntu/.claude"
+	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
+		log.Printf("pushSnapshot: %s does not exist, nothing to save", cloneDir)
+		return
+	}
+	var buf bytes.Buffer
+	if err := tarGzDir(cloneDir, &buf); err != nil {
+		log.Printf("pushSnapshot: tar: %v", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, callbackURL, &buf)
+	if err != nil {
+		log.Printf("pushSnapshot: build request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("pushSnapshot: POST: %v", err)
+		return
+	}
+	resp.Body.Close()
+	log.Printf("pushSnapshot: saved (%d bytes, status %d)", buf.Len(), resp.StatusCode)
 }
 
 func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
