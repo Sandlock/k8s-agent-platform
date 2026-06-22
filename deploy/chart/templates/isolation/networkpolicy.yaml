@@ -71,9 +71,7 @@ metadata:
   labels:
     {{- include "sandlock.labels" . | nindent 4 }}
 spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/managed-by: sandlock-operator
+  podSelector: {}
   policyTypes:
     - Egress
   egress:
