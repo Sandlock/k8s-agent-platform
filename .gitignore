@@ -49,3 +49,9 @@ deploy/chart/charts/
 *.kubeconfig
 
 .claude
+
+node_modules
+.docusaurus
+docs/node_modules/
+docs/build/
+docs/.docusaurus/

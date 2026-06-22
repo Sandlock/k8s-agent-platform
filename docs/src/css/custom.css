@@ -1,0 +1,55 @@
+:root {
+  --ifm-color-primary: #7c6af4;
+  --ifm-color-primary-dark: #6453f2;
+  --ifm-color-primary-darker: #5848f1;
+  --ifm-color-primary-darkest: #3629ed;
+  --ifm-color-primary-light: #9481f6;
+  --ifm-color-primary-lighter: #a08cf7;
+  --ifm-color-primary-lightest: #c3b9fa;
+  --ifm-code-font-size: 90%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #a08cf7;
+  --ifm-color-primary-dark: #8a70f5;
+  --ifm-color-primary-darker: #7c60f4;
+  --ifm-color-primary-darkest: #5035f1;
+  --ifm-color-primary-light: #b6a8f9;
+  --ifm-color-primary-lighter: #c4b9fa;
+  --ifm-color-primary-lightest: #e4defd;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* API method badges */
+.api-method {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: var(--ifm-font-family-monospace);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.api-method--get    { background: #2e7d32; color: #fff; }
+.api-method--post   { background: #1565c0; color: #fff; }
+.api-method--put    { background: #e65100; color: #fff; }
+.api-method--delete { background: #b71c1c; color: #fff; }
+
+/* Endpoint titles */
+.endpoint-title {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 1rem;
+}
+
+/* Flag tables */
+table th:first-child {
+  white-space: nowrap;
+}
+
+/* Hero tweaks */
+.hero--primary {
+  background: linear-gradient(135deg, #1a1533 0%, #2d2460 50%, #1a1533 100%);
+}

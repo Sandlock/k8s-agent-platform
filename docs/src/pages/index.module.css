@@ -1,0 +1,71 @@
+.heroBanner {
+  padding: 4rem 0;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.quickInstall {
+  margin-top: 1.5rem;
+  opacity: 0.8;
+}
+
+.quickInstall code {
+  background: rgba(0,0,0,0.3);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.features {
+  padding: 4rem 0;
+}
+
+.feature {
+  margin-bottom: 2rem;
+}
+
+.howItWorks {
+  padding: 4rem 0;
+  background: var(--ifm-background-surface-color);
+}
+
+.steps {
+  max-width: 700px;
+  margin: 2rem auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.stepNum {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.step p {
+  margin: 0.25rem 0 0;
+  color: var(--ifm-color-emphasis-700);
+}
