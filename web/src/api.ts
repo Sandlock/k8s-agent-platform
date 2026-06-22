@@ -11,9 +11,18 @@ export function setToken(t: string) {
 export function clearToken() {
   token = ''
   localStorage.removeItem('sandlock_token')
+  localStorage.removeItem('sandlock_admin')
 }
 
 export function getToken() { return token }
+
+export function setStoredAdmin(v: boolean) {
+  localStorage.setItem('sandlock_admin', String(v))
+}
+
+export function getStoredAdmin() {
+  return localStorage.getItem('sandlock_admin') === 'true'
+}
 
 export function onUnauthorized(handler: () => void) {
   unauthorizedHandler = handler
