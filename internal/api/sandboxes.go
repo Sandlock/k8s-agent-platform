@@ -50,6 +50,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	if req.Harness == "" {
 		req.Harness = "claude-code"
 	}
+	req.RepoURL = normalizeRepoURL(req.RepoURL)
 
 	userID := userIDFromCtx(r.Context())
 
@@ -511,6 +512,14 @@ func (s *Server) providerRef(r *http.Request, id, userID string) (string, bool) 
 		return "", false
 	}
 	return sb.ProviderRef, true
+}
+
+// normalizeRepoURL trims trailing ".git" and "/" so that URLs from the GitHub
+// API (clone_url ends in .git) match URLs typed manually by users.
+func normalizeRepoURL(u string) string {
+	u = strings.TrimSuffix(u, "/")
+	u = strings.TrimSuffix(u, ".git")
+	return u
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
