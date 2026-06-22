@@ -320,6 +320,7 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	}
 
 	if req.RepoURL != "" {
+		log.Printf("cloning %s branch=%q", req.RepoURL, req.Branch)
 		makeClone := func(withBranch bool) *exec.Cmd {
 			if strings.Contains(req.RepoURL, "github.com") && req.GitHubToken != "" {
 				args := []string{"repo", "clone", req.RepoURL, workDir, "--", "--depth=1"}
