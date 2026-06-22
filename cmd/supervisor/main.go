@@ -376,6 +376,7 @@ func pushSnapshotCallback(callbackURL string) {
 		log.Printf("pushSnapshot: tar: %v", err)
 		return
 	}
+	size := buf.Len()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, callbackURL, &buf)
@@ -390,7 +391,7 @@ func pushSnapshotCallback(callbackURL string) {
 		return
 	}
 	resp.Body.Close()
-	log.Printf("pushSnapshot: saved (%d bytes, status %d)", buf.Len(), resp.StatusCode)
+	log.Printf("pushSnapshot: saved (%d bytes, status %d)", size, resp.StatusCode)
 }
 
 func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
