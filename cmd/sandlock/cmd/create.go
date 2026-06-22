@@ -48,11 +48,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	noResume, _ := cmd.Flags().GetBool("no-resume")
 
 	if selectRepo {
-		token := githubToken()
-		if token == "" {
+		ghTok := githubToken()
+		if ghTok == "" {
 			return fmt.Errorf("no GitHub token — run `sandlock github token` first or set GITHUB_TOKEN")
 		}
-		repos, err := fetchGitHubRepos(token)
+		repos, err := fetchGitHubRepos(ghTok)
 		if err != nil {
 			return err
 		}
@@ -62,6 +62,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 		if repo == "" {
 			return fmt.Errorf("no repo selected")
+		}
+		// Derive "owner/name" from the clone URL for the branch API call.
+		fullName := repoFullName(repo)
+		if branch == "" && fullName != "" {
+			branch, err = pickBranch(ghTok, fullName)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	server := viper.GetString("server")

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -229,4 +230,165 @@ func pickRepo(repos []ghRepo) (string, error) {
 		return "", err
 	}
 	return m.(pickerModel).selected, nil
+}
+
+// repoFullName converts a GitHub clone URL to "owner/repo".
+// e.g. "https://github.com/Sandlock/foo.git" → "Sandlock/foo"
+func repoFullName(cloneURL string) string {
+	s := strings.TrimSuffix(cloneURL, ".git")
+	s = strings.TrimSuffix(s, "/")
+	if idx := strings.Index(s, "github.com/"); idx >= 0 {
+		return s[idx+len("github.com/"):]
+	}
+	return ""
+}
+
+// ── Branch picker ─────────────────────────────────────────────────────────────
+
+const newBranchSentinel = "\x00new"
+
+type ghBranch struct{ Name string }
+
+// fetchGitHubBranches returns branches for a repo identified by "owner/name".
+func fetchGitHubBranches(token, fullName string) ([]ghBranch, error) {
+	var all []ghBranch
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/branches?per_page=100&page=%d", fullName, page)
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("GitHub API: %w", err)
+		}
+		var batch []ghBranch
+		err = json.NewDecoder(resp.Body).Decode(&batch)
+		resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return all, nil
+}
+
+type branchItem struct{ name string }
+
+func (b branchItem) Title() string {
+	if b.name == newBranchSentinel {
+		return "[ + new branch ]"
+	}
+	return b.name
+}
+func (b branchItem) Description() string { return "" }
+func (b branchItem) FilterValue() string {
+	if b.name == newBranchSentinel {
+		return ""
+	}
+	return b.name
+}
+
+// branchPickerModel handles both the list view and the new-branch text input.
+type branchPickerModel struct {
+	list      list.Model
+	input     textinput.Model
+	typing    bool // true when the new-branch text input is active
+	selected  string
+	quitting  bool
+}
+
+func (m branchPickerModel) Init() tea.Cmd { return textinput.Blink }
+
+func (m branchPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.typing {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "enter":
+				val := strings.TrimSpace(m.input.Value())
+				if val != "" {
+					m.selected = val
+				}
+				m.quitting = true
+				return m, tea.Quit
+			case "ctrl+c", "esc":
+				m.quitting = true
+				return m, tea.Quit
+			}
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+
+	// List mode.
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			if item, ok := m.list.SelectedItem().(branchItem); ok {
+				if item.name == newBranchSentinel {
+					m.typing = true
+					m.input.Focus()
+					return m, textinput.Blink
+				}
+				m.selected = item.name
+				m.quitting = true
+				return m, tea.Quit
+			}
+		case "ctrl+c", "q", "esc":
+			m.quitting = true
+			return m, tea.Quit
+		}
+	case tea.WindowSizeMsg:
+		m.list.SetSize(msg.Width, msg.Height-2)
+	}
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m branchPickerModel) View() string {
+	if m.quitting {
+		return ""
+	}
+	if m.typing {
+		return fmt.Sprintf("New branch name: %s\n\n(enter to confirm, esc to cancel)", m.input.View())
+	}
+	return m.list.View()
+}
+
+// pickBranch shows branches for the given repo (by full name, e.g. "owner/repo")
+// and lets the user pick one or type a new name. Returns "" if cancelled.
+func pickBranch(token, fullName string) (string, error) {
+	branches, err := fetchGitHubBranches(token, fullName)
+	if err != nil {
+		return "", fmt.Errorf("fetch branches: %w", err)
+	}
+
+	items := make([]list.Item, 0, len(branches)+1)
+	items = append(items, branchItem{name: newBranchSentinel})
+	for _, b := range branches {
+		items = append(items, branchItem{name: b.Name})
+	}
+
+	l := list.New(items, list.NewDefaultDelegate(), 80, 24)
+	l.Title = "Select a branch  (/ to filter, enter to select, esc to cancel)"
+	l.SetFilteringEnabled(true)
+	l.SetShowStatusBar(true)
+
+	ti := textinput.New()
+	ti.Placeholder = "my-feature-branch"
+	ti.CharLimit = 200
+
+	m, err := tea.NewProgram(branchPickerModel{list: l, input: ti}, tea.WithAltScreen()).Run()
+	if err != nil {
+		return "", err
+	}
+	return m.(branchPickerModel).selected, nil
 }
