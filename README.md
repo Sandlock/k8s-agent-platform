@@ -45,9 +45,16 @@ Pods are single-use. The supervisor refuses a second claim. When the session end
 Sandlock requires the agent-sandbox controller and CRDs:
 
 ```bash
-helm upgrade --install agent-sandbox \
-  oci://ghcr.io/kubernetes-sigs/agent-sandbox/charts/agent-sandbox \
-  --namespace agent-sandbox-system --create-namespace
+VERSION=$(curl https://api.github.com/repos/kubernetes-sigs/agent-sandbox/releases/latest | jq -r '.tag_name')
+
+# Core components (CRDs + controller):
+kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${VERSION}/manifest.yaml
+
+# Extensions components (SandboxTemplate, SandboxWarmPool, SandboxClaim):
+kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${VERSION}/extensions.yaml
+
+# Wait for the controller to be ready:
+kubectl -n agent-sandbox-system get pods
 ```
 
 ### 2. Install Sandlock
