@@ -85,7 +85,9 @@ admin:
   password: ""
 
 # ── BYOK key encryption ───────────────────────────────────────────────────────
-# 32-byte hex string (openssl rand -hex 32).  Required when database.url is set.
+# 32-byte hex string (openssl rand -hex 32). Auto-generated and stored in the
+# sandlock-master-key Secret if left empty — stable across upgrades.
+# To use an existing secret instead, set masterKeyExistingSecret.
 masterKey: ""
 masterKeyExistingSecret: ""
 masterKeyExistingSecretKey: MASTER_KEY

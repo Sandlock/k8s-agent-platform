@@ -88,12 +88,11 @@ spec:
                   key: {{ include "sandlock.dbSecretKey" . }}
             {{- end }}
             {{- end }}
-            {{- $mkSecret := .Values.masterKeyExistingSecret | default (and .Values.masterKey "sandlock-master-key") }}
-            {{- if $mkSecret }}
+            {{- if $dbSecret }}
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ $mkSecret }}
+                  name: {{ .Values.masterKeyExistingSecret | default "sandlock-master-key" }}
                   key: {{ .Values.masterKeyExistingSecretKey | default "MASTER_KEY" }}
             {{- end }}
             - name: ADMIN_PASSWORD
