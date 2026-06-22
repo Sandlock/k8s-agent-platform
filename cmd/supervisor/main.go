@@ -320,43 +320,58 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	}
 
 	if req.RepoURL != "" {
-		var clone *exec.Cmd
-		if strings.Contains(req.RepoURL, "github.com") && req.GitHubToken != "" {
-			args := []string{"repo", "clone", req.RepoURL, workDir, "--"}
-			args = append(args, "--depth=1")
-			if req.Branch != "" {
-				args = append(args, "--branch="+req.Branch)
+		makeClone := func(withBranch bool) *exec.Cmd {
+			if strings.Contains(req.RepoURL, "github.com") && req.GitHubToken != "" {
+				args := []string{"repo", "clone", req.RepoURL, workDir, "--", "--depth=1"}
+				if withBranch && req.Branch != "" {
+					args = append(args, "--branch="+req.Branch)
+				}
+				cmd := exec.Command("gh", args...)
+				cmd.Env = append(os.Environ(), "GITHUB_TOKEN="+req.GitHubToken)
+				return cmd
 			}
-			clone = exec.Command("gh", args...)
-			clone.Env = append(os.Environ(), "GITHUB_TOKEN="+req.GitHubToken)
-		} else {
 			args := []string{"clone", "--depth=1"}
-			if req.Branch != "" {
+			if withBranch && req.Branch != "" {
 				args = append(args, "--branch="+req.Branch)
 			}
 			args = append(args, req.RepoURL, workDir)
-			clone = exec.Command("git", args...)
+			return exec.Command("git", args...)
 		}
+
+		runGit := func(args ...string) error {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = workDir
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+
+		clone := makeClone(true)
 		clone.Stdout = os.Stdout
 		clone.Stderr = os.Stderr
 		if err := clone.Run(); err != nil {
-			log.Printf("clone %s: %v (continuing without repo)", req.RepoURL, err)
-		} else if req.Branch != "" {
-			// Verify we landed on the right branch; the --branch flag should
-			// handle this, but fall back for edge cases (e.g. branch == default).
-			runGit := func(args ...string) error {
-				cmd := exec.Command("git", args...)
-				cmd.Dir = workDir
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				return cmd.Run()
+			// --branch=<name> fails when the branch doesn't exist on the remote
+			// (e.g. a new branch typed in the interactive picker). Fall back to
+			// cloning the default branch and creating the branch locally.
+			if req.Branch != "" {
+				fallback := makeClone(false)
+				fallback.Stdout = os.Stdout
+				fallback.Stderr = os.Stderr
+				if ferr := fallback.Run(); ferr != nil {
+					log.Printf("clone %s: %v (continuing without repo)", req.RepoURL, ferr)
+				} else if err = runGit("checkout", "-b", req.Branch); err != nil {
+					log.Printf("checkout -b %s: %v (continuing on default branch)", req.Branch, err)
+				}
+			} else {
+				log.Printf("clone %s: %v (continuing without repo)", req.RepoURL, err)
 			}
+		} else if req.Branch != "" {
+			// Clone succeeded with --branch; we should already be on the right
+			// branch, but run checkout as a no-op confirmation. If it fails for
+			// any reason, try an explicit fetch before giving up.
 			if err := runGit("checkout", req.Branch); err != nil {
-				// fetch with explicit refspec so origin/<branch> tracking ref is created.
 				if ferr := runGit("fetch", "origin", req.Branch+":"+req.Branch); ferr != nil {
-					if err = runGit("checkout", "-b", req.Branch); err != nil {
-						log.Printf("checkout branch %s: %v (continuing on default branch)", req.Branch, err)
-					}
+					log.Printf("checkout branch %s: %v (continuing on default branch)", req.Branch, err)
 				} else if err = runGit("checkout", req.Branch); err != nil {
 					log.Printf("checkout branch %s: %v (continuing on default branch)", req.Branch, err)
 				}
