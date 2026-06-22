@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -247,34 +249,102 @@ func repoFullName(cloneURL string) string {
 
 const newBranchSentinel = "\x00new"
 
-type ghBranch struct{ Name string }
+type ghBranch struct {
+	Name          string
+	CommittedDate time.Time
+}
 
-// fetchGitHubBranches returns branches for a repo identified by "owner/name".
-func fetchGitHubBranches(token, fullName string) ([]ghBranch, error) {
-	var all []ghBranch
-	for page := 1; ; page++ {
-		url := fmt.Sprintf("https://api.github.com/repos/%s/branches?per_page=100&page=%d", fullName, page)
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
+// fetchGitHubBranches returns the default branch name and all branches for a
+// repo identified by "owner/name", ordered newest commit first.
+func fetchGitHubBranches(token, fullName string) (defaultBranch string, branches []ghBranch, err error) {
+	parts := strings.SplitN(fullName, "/", 2)
+	if len(parts) != 2 {
+		return "", nil, fmt.Errorf("invalid repo name: %s", fullName)
+	}
+	owner, repo := parts[0], parts[1]
+
+	const gql = `
+query($owner: String!, $repo: String!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    defaultBranchRef { name }
+    refs(refPrefix: "refs/heads/", first: 100, after: $cursor,
+         orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) {
+      nodes {
+        name
+        target { ... on Commit { committedDate } }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`
+
+	type gqlReq struct {
+		Query     string                 `json:"query"`
+		Variables map[string]interface{} `json:"variables"`
+	}
+	type gqlResp struct {
+		Data struct {
+			Repository struct {
+				DefaultBranchRef struct {
+					Name string `json:"name"`
+				} `json:"defaultBranchRef"`
+				Refs struct {
+					Nodes []struct {
+						Name   string `json:"name"`
+						Target struct {
+							CommittedDate time.Time `json:"committedDate"`
+						} `json:"target"`
+					} `json:"nodes"`
+					PageInfo struct {
+						HasNextPage bool   `json:"hasNextPage"`
+						EndCursor   string `json:"endCursor"`
+					} `json:"pageInfo"`
+				} `json:"refs"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	var cursor *string
+	for {
+		vars := map[string]interface{}{"owner": owner, "repo": repo}
+		if cursor != nil {
+			vars["cursor"] = *cursor
+		}
+		body, _ := json.Marshal(gqlReq{Query: gql, Variables: vars})
+		req, _ := http.NewRequest(http.MethodPost, "https://api.github.com/graphql", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Accept", "application/vnd.github+json")
-		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("GitHub API: %w", err)
+		resp, reqErr := http.DefaultClient.Do(req)
+		if reqErr != nil {
+			return "", nil, fmt.Errorf("GitHub GraphQL: %w", reqErr)
 		}
-		var batch []ghBranch
-		err = json.NewDecoder(resp.Body).Decode(&batch)
+		var result gqlResp
+		decErr := json.NewDecoder(resp.Body).Decode(&result)
 		resp.Body.Close()
-		if err != nil {
-			return nil, err
+		if decErr != nil {
+			return "", nil, decErr
 		}
-		all = append(all, batch...)
-		if len(batch) < 100 {
+		if len(result.Errors) > 0 {
+			return "", nil, fmt.Errorf("GitHub GraphQL: %s", result.Errors[0].Message)
+		}
+
+		if defaultBranch == "" {
+			defaultBranch = result.Data.Repository.DefaultBranchRef.Name
+		}
+		for _, n := range result.Data.Repository.Refs.Nodes {
+			branches = append(branches, ghBranch{Name: n.Name, CommittedDate: n.Target.CommittedDate})
+		}
+		if !result.Data.Repository.Refs.PageInfo.HasNextPage {
 			break
 		}
+		c := result.Data.Repository.Refs.PageInfo.EndCursor
+		cursor = &c
 	}
-	return all, nil
+	return defaultBranch, branches, nil
 }
 
 type branchItem struct{ name string }
@@ -366,16 +436,26 @@ func (m branchPickerModel) View() string {
 // pickBranch shows branches for the given repo (by full name, e.g. "owner/repo")
 // and lets the user pick one or type a new name. Returns "" if cancelled.
 func pickBranch(token, fullName string) (string, error) {
-	branches, err := fetchGitHubBranches(token, fullName)
+	defaultBranch, branches, err := fetchGitHubBranches(token, fullName)
 	if err != nil {
 		return "", fmt.Errorf("fetch branches: %w", err)
 	}
 
+	// Default branch first, then remaining branches newest-first (ordered by
+	// GraphQL), then the "new branch" option at the bottom.
 	items := make([]list.Item, 0, len(branches)+1)
-	items = append(items, branchItem{name: newBranchSentinel})
 	for _, b := range branches {
-		items = append(items, branchItem{name: b.Name})
+		if b.Name == defaultBranch {
+			items = append(items, branchItem{name: b.Name})
+			break
+		}
 	}
+	for _, b := range branches {
+		if b.Name != defaultBranch {
+			items = append(items, branchItem{name: b.Name})
+		}
+	}
+	items = append(items, branchItem{name: newBranchSentinel})
 
 	l := list.New(items, list.NewDefaultDelegate(), 80, 24)
 	l.Title = "Select a branch  (/ to filter, enter to select, esc to cancel)"
