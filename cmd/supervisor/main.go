@@ -183,7 +183,7 @@ func (s *supervisor) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(proto.HeartbeatResponse{Phase: phase})
 }
 
-// handleSnapshot streams a gzip+tar of /home/ubuntu/.claude/ back to the caller.
+// handleSnapshot streams a gzip+tar of ~/.claude/ and ~/.claude.json back to the caller.
 // Only available after the pod has been claimed. Returns 404 if the directory
 // doesn't exist, 409 if the pod hasn't been claimed yet.
 func (s *supervisor) handleSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -191,27 +191,45 @@ func (s *supervisor) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not claimed", http.StatusConflict)
 		return
 	}
-	cloneDir := "/home/ubuntu/.claude"
-	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
+	if _, err := os.Stat("/home/ubuntu/.claude"); os.IsNotExist(err) {
 		http.Error(w, "no claude session data", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(http.StatusOK)
-	if err := tarGzDir(cloneDir, w); err != nil {
+	if err := tarGzClaudeData("/home/ubuntu", w); err != nil {
 		log.Printf("snapshot: %v", err)
 	}
 }
 
-// tarGzDir writes a gzip+tar of dir into w.
-func tarGzDir(dir string, w io.Writer) error {
+// tarGzClaudeData writes a gzip+tar of ~/.claude/ and ~/.claude.json into w,
+// with paths relative to homeDir so restoreSnapshot can extract them correctly.
+func tarGzClaudeData(homeDir string, w io.Writer) error {
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+
+	// Include .claude.json (top-level config) if present.
+	jsonPath := filepath.Join(homeDir, ".claude.json")
+	if info, err := os.Stat(jsonPath); err == nil && !info.IsDir() {
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err == nil {
+			hdr.Name = ".claude.json"
+			if tw.WriteHeader(hdr) == nil {
+				if f, err := os.Open(jsonPath); err == nil {
+					io.Copy(tw, f) //nolint:errcheck
+					f.Close()
+				}
+			}
+		}
+	}
+
+	// Include .claude/ directory tree.
+	clauDir := filepath.Join(homeDir, ".claude")
+	err := filepath.WalkDir(clauDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(filepath.Dir(dir), path)
+		rel, _ := filepath.Rel(homeDir, path)
 		info, err := d.Info()
 		if err != nil {
 			return err
@@ -366,13 +384,12 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 // pushSnapshotCallback tars ~/.claude/ and POSTs it to the control plane so
 // the session is persisted when the user exits Claude Code via the CLI.
 func pushSnapshotCallback(callbackURL string) {
-	cloneDir := "/home/ubuntu/.claude"
-	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
-		log.Printf("pushSnapshot: %s does not exist, nothing to save", cloneDir)
+	if _, err := os.Stat("/home/ubuntu/.claude"); os.IsNotExist(err) {
+		log.Printf("pushSnapshot: ~/.claude does not exist, nothing to save")
 		return
 	}
 	var buf bytes.Buffer
-	if err := tarGzDir(cloneDir, &buf); err != nil {
+	if err := tarGzClaudeData("/home/ubuntu", &buf); err != nil {
 		log.Printf("pushSnapshot: tar: %v", err)
 		return
 	}
