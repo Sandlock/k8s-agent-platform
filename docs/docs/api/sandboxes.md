@@ -32,7 +32,7 @@ Create (claim) a new sandbox.
 | `anthropicKey` | string | No | Inject an API key inline. Takes priority over `useStoredKey`. |
 | `useStoredKey` | bool | No | Decrypt and use the key stored via `POST /v1/keys`. |
 | `repoUrl` | string | No | Git repo URL to shallow-clone. Normalized (trailing `/` and `.git` suffix stripped) before storage. |
-| `branch` | string | No | Branch to check out. Created locally if it doesn't exist on the remote. |
+| `branch` | string | No | Branch to clone and check out. Passed as `--branch` to the clone; created locally if it doesn't exist on the remote. |
 | `githubToken` | string | No | GitHub token for cloning private repos with `gh repo clone`. |
 | `noResume` | bool | No | If `true`, ignore any existing snapshot for this repo+branch. Default: `false`. |
 

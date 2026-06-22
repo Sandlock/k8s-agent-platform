@@ -62,7 +62,7 @@ sandlock create \
   --use-stored-key
 ```
 
-The branch is checked out after clone. If `feature/my-feature` doesn't exist on the remote, it is created locally with `git checkout -b`.
+The branch is passed to the clone via `--branch`, so the sandbox starts on the correct branch immediately. If the branch doesn't exist on the remote it is created locally.
 
 ### Interactive repo and branch picker
 
