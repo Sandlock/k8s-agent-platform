@@ -65,8 +65,8 @@ function HomepageHero() {
             Get Started →
           </Link>
           <Link
-            className="button button--outline button--secondary button--lg"
-            style={{marginLeft: '1rem'}}
+            className="button button--lg"
+            style={{marginLeft: '1rem', background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.5)'}}
             href="https://github.com/Sandlock/k8s-agent-platform">
             View on GitHub
           </Link>
