@@ -52,6 +52,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		req.Harness = "claude-code"
 	}
 	req.RepoURL = normalizeRepoURL(req.RepoURL)
+	log.Printf("createSandbox: repoUrl=%q branch=%q hasGitHubToken=%v", req.RepoURL, req.Branch, req.GitHubToken != "")
 
 	userID := userIDFromCtx(r.Context())
 
