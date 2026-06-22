@@ -14,13 +14,19 @@ in the LICENSE file.
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -134,6 +140,7 @@ func (s *supervisor) serveControl() {
 	mux.HandleFunc("POST /claim", s.handleClaim)
 	mux.HandleFunc("POST /stop", s.handleStop)
 	mux.HandleFunc("GET /heartbeat", s.handleHeartbeat)
+	mux.HandleFunc("GET /snapshot", s.handleSnapshot)
 
 	log.Printf("control channel listening on %s", controlAddr)
 	if err := http.ListenAndServe(controlAddr, mux); err != nil {
@@ -176,10 +183,122 @@ func (s *supervisor) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(proto.HeartbeatResponse{Phase: phase})
 }
 
+// handleSnapshot streams a gzip+tar of /home/ubuntu/.claude/ back to the caller.
+// Only available after the pod has been claimed. Returns 404 if the directory
+// doesn't exist, 409 if the pod hasn't been claimed yet.
+func (s *supervisor) handleSnapshot(w http.ResponseWriter, r *http.Request) {
+	if !s.claimed.Load() {
+		http.Error(w, "not claimed", http.StatusConflict)
+		return
+	}
+	cloneDir := "/home/ubuntu/.claude"
+	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
+		http.Error(w, "no claude session data", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(http.StatusOK)
+	if err := tarGzDir(cloneDir, w); err != nil {
+		log.Printf("snapshot: %v", err)
+	}
+}
+
+// tarGzDir writes a gzip+tar of dir into w.
+func tarGzDir(dir string, w io.Writer) error {
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(filepath.Dir(dir), path)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = rel
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = io.Copy(tw, f)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return gz.Close()
+}
+
+// restoreSnapshot decompresses a gzip+tar snapshot into homeDir.
+func restoreSnapshot(data []byte, homeDir string) error {
+	gzr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("gzip: %w", err)
+	}
+	defer gzr.Close()
+	tr := tar.NewReader(gzr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar: %w", err)
+		}
+		clean := filepath.Clean(hdr.Name)
+		if strings.HasPrefix(clean, "..") {
+			continue
+		}
+		target := filepath.Join(homeDir, clean)
+		if hdr.Typeflag == tar.TypeDir {
+			if err := os.MkdirAll(target, fs.FileMode(hdr.Mode)|0700); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fs.FileMode(hdr.Mode)|0600)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(f, tr); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+	}
+	return nil
+}
+
 func (s *supervisor) launch(req proto.ClaimRequest) error {
 	workDir := "/workspace"
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		log.Printf("warning: MkdirAll %s: %v", workDir, err)
+	}
+
+	if len(req.SessionSnapshot) > 0 {
+		if err := restoreSnapshot(req.SessionSnapshot, "/home/ubuntu"); err != nil {
+			log.Printf("warning: restore snapshot failed, continuing fresh: %v", err)
+		} else {
+			log.Printf("restored Claude Code session snapshot (%d bytes)", len(req.SessionSnapshot))
+		}
 	}
 
 	if req.RepoURL != "" {
@@ -245,7 +364,11 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	var cmd *exec.Cmd
 	switch req.Harness {
 	case "claude-code":
-		cmd = exec.Command("/bin/sh", "-c", "claude --dangerously-skip-permissions")
+		base := "claude --dangerously-skip-permissions"
+		if len(req.SessionSnapshot) > 0 {
+			base += " --continue"
+		}
+		cmd = exec.Command("/bin/sh", "-c", base)
 	default:
 		cmd = exec.Command("/bin/sh", "-c", req.Harness)
 	}

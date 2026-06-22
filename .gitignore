@@ -47,3 +47,5 @@ deploy/chart/charts/
 
 # Misc
 *.kubeconfig
+
+.claude

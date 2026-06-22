@@ -10,6 +10,10 @@ type ClaimRequest struct {
 	Harness         string `json:"harness"`
 	RepoURL         string `json:"repoUrl,omitempty"`
 	GitHubToken     string `json:"githubToken,omitempty"`
+	// SessionSnapshot is a gzip+tar of ~/.claude/ from a prior sandbox.
+	// When non-nil the supervisor restores it before launching the harness
+	// so Claude Code can resume the previous session via --continue.
+	SessionSnapshot []byte `json:"sessionSnapshot,omitempty"`
 }
 
 // ClaimResponse is returned by the supervisor after a successful claim.

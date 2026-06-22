@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/sandlock/k8s-agent-platform/internal/auth"
 	proto "github.com/sandlock/k8s-agent-platform/internal/supervisorproto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +38,7 @@ type createSandboxRequest struct {
 	UseStoredKey bool   `json:"useStoredKey,omitempty"`
 	RepoURL      string `json:"repoUrl,omitempty"`
 	GitHubToken  string `json:"githubToken,omitempty"`
+	NoResume     bool   `json:"noResume,omitempty"`
 }
 
 func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
@@ -66,9 +70,27 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 
 	id := uuid.New().String()
 
+	// Look up prior session snapshot for this (user, repo) pair.
+	var sessionSnapshot []byte
+	resumed := false
+	if s.db != nil && req.RepoURL != "" && !req.NoResume {
+		var enc []byte
+		if err := s.db.QueryRow(ctx,
+			`SELECT snapshot FROM agent_snapshots WHERE user_id=$1 AND repo_url=$2`,
+			userID, req.RepoURL,
+		).Scan(&enc); err == nil && len(enc) > 0 {
+			if dec, err := auth.DecryptBytes(enc); err == nil {
+				sessionSnapshot = dec
+				resumed = true
+			} else {
+				log.Printf("createSandbox: decrypt snapshot: %v (ignoring)", err)
+			}
+		}
+	}
+
 	// Send Claim to supervisor — key lives only in this in-memory call.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL); err != nil {
+	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, sessionSnapshot); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
@@ -94,9 +116,10 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	attachURL := fmt.Sprintf("ws://%s/v1/sandboxes/%s/terminal", r.Host, id)
-	writeJSON(w, http.StatusCreated, map[string]string{
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"sandboxId": id,
 		"attachUrl": attachURL,
+		"resumed":   resumed,
 	})
 }
 
@@ -206,8 +229,14 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
-func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL string) error {
-	body, _ := json.Marshal(proto.ClaimRequest{AnthropicKey: key, GitHubToken: githubToken, Harness: harness, RepoURL: repoURL})
+func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL string, sessionSnapshot []byte) error {
+	body, _ := json.Marshal(proto.ClaimRequest{
+		AnthropicKey:    key,
+		GitHubToken:     githubToken,
+		Harness:         harness,
+		RepoURL:         repoURL,
+		SessionSnapshot: sessionSnapshot,
+	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -297,6 +326,19 @@ func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Snapshot Claude Code session state before pod teardown (non-fatal).
+	if s.db != nil && ref != "" {
+		if fqdn, err := s.sandboxFQDNFromClaimRef(r.Context(), ref); err == nil {
+			var repoURL string
+			s.db.QueryRow(r.Context(), `SELECT repo_url FROM sandboxes WHERE id=$1 AND user_id=$2`, id, userID).Scan(&repoURL)
+			if repoURL != "" {
+				if err := s.snapshotSession(r.Context(), userID, repoURL, fqdn); err != nil {
+					log.Printf("stopSandbox: snapshot: %v (non-fatal)", err)
+				}
+			}
+		}
+	}
+
 	if s.db != nil {
 		s.db.Exec(r.Context(), `UPDATE sandboxes SET status='gone' WHERE id=$1`, id)
 	} else {
@@ -310,6 +352,53 @@ func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {
 
 	s.destroyClaim(r.Context(), ref)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+const maxSnapshotBytes = 15 << 20 // 15 MB
+
+// snapshotSession fetches the Claude Code session state from a live pod,
+// encrypts it, and upserts it into agent_snapshots.
+func (s *Server) snapshotSession(ctx context.Context, userID, repoURL, fqdn string) error {
+	snapshotCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(snapshotCtx, http.MethodGet, fmt.Sprintf("http://%s:8080/snapshot", fqdn), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("GET /snapshot: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil // no session data to save
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET /snapshot: status %d", resp.StatusCode)
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSnapshotBytes))
+	if err != nil {
+		return fmt.Errorf("read snapshot: %w", err)
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+
+	enc, err := auth.EncryptBytes(raw)
+	if err != nil {
+		return fmt.Errorf("encrypt snapshot: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx,
+		`INSERT INTO agent_snapshots(user_id, repo_url, snapshot)
+		 VALUES($1, $2, $3)
+		 ON CONFLICT (user_id, repo_url)
+		 DO UPDATE SET snapshot=EXCLUDED.snapshot, snapshot_at=NOW()`,
+		userID, repoURL, enc,
+	)
+	return err
 }
 
 // terminalProxy upgrades to WebSocket and proxies to the pod's terminal bridge (:8081).

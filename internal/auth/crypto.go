@@ -47,6 +47,47 @@ func EncryptKey(plaintext string) ([]byte, error) {
 	return gcm.Seal(nonce, nonce, []byte(plaintext), nil), nil
 }
 
+// EncryptBytes encrypts arbitrary binary data with AES-256-GCM using the master key.
+func EncryptBytes(data []byte) ([]byte, error) {
+	if len(masterKey) == 0 {
+		return nil, errors.New("MASTER_KEY not configured")
+	}
+	block, err := aes.NewCipher(masterKey)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, fmt.Errorf("generate nonce: %w", err)
+	}
+	return gcm.Seal(nonce, nonce, data, nil), nil
+}
+
+// DecryptBytes decrypts a ciphertext produced by EncryptBytes.
+func DecryptBytes(ciphertext []byte) ([]byte, error) {
+	if len(masterKey) == 0 {
+		return nil, errors.New("MASTER_KEY not configured")
+	}
+	block, err := aes.NewCipher(masterKey)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	if len(ciphertext) < gcm.NonceSize() {
+		return nil, errors.New("ciphertext too short")
+	}
+	nonce := ciphertext[:gcm.NonceSize()]
+	ct := ciphertext[gcm.NonceSize():]
+	return gcm.Open(nil, nonce, ct, nil)
+}
+
 // DecryptKey decrypts a ciphertext produced by EncryptKey.
 func DecryptKey(ciphertext []byte) (string, error) {
 	if len(masterKey) == 0 {

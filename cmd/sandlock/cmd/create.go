@@ -28,6 +28,7 @@ func init() {
 	createCmd.Flags().Bool("select-repo", false, "Interactively pick a GitHub repo to clone into the sandbox")
 	createCmd.Flags().BoolP("detach", "d", false, "Create sandbox but do not attach — print the sandbox ID and exit")
 	createCmd.Flags().Bool("rm", false, "Stop and delete the sandbox when the session ends")
+	createCmd.Flags().Bool("no-resume", false, "Start a fresh Claude Code session even if a prior snapshot exists")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -42,6 +43,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	selectRepo, _ := cmd.Flags().GetBool("select-repo")
 	detach, _ := cmd.Flags().GetBool("detach")
 	rm, _ := cmd.Flags().GetBool("rm")
+	noResume, _ := cmd.Flags().GetBool("no-resume")
 
 	if selectRepo {
 		token := githubToken()
@@ -69,6 +71,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"repoUrl":      repo,
 		"useStoredKey": useStored,
 		"githubToken":  githubToken(),
+		"noResume":     noResume,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -90,6 +93,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	var result struct {
 		SandboxID string `json:"sandboxId"`
 		AttachURL string `json:"attachUrl"`
+		Resumed   bool   `json:"resumed"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return err
@@ -111,7 +115,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
-	fmt.Fprintf(os.Stderr, "Sandbox %s ready — connecting...\n", result.SandboxID)
+	if result.Resumed {
+		fmt.Fprintf(os.Stderr, "Sandbox %s ready — resuming prior session...\n", result.SandboxID)
+	} else {
+		fmt.Fprintf(os.Stderr, "Sandbox %s ready — connecting...\n", result.SandboxID)
+	}
 	attachErr := attach(result.SandboxID, server, token)
 	if rm {
 		stopSandbox(result.SandboxID, server, token)
