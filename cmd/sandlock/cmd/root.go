@@ -12,8 +12,9 @@ import (
 var cfgFile string
 
 var rootCmd = &cobra.Command{
-	Use:   "sandlock",
-	Short: "Sandlock — run Claude Code agents in isolated Kubernetes pods",
+	Use:          "sandlock",
+	Short:        "Sandlock — run Claude Code agents in isolated Kubernetes pods",
+	SilenceUsage: true,
 }
 
 func Execute() {
