@@ -8,7 +8,7 @@ const config = {
   favicon: 'img/favicon.ico',
 
   url: 'https://sandlock.dev',
-  baseUrl: '/',
+  baseUrl: '/k8s-agent-platform/',
 
   organizationName: 'Sandlock',
   projectName: 'k8s-agent-platform',
