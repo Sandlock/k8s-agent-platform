@@ -69,6 +69,7 @@ export interface CreateSandboxBody {
   anthropicKey?: string
   useStoredKey?: boolean
   repoUrl?: string
+  branch?: string
 }
 
 export function terminalWsUrl(id: string) {

@@ -25,6 +25,7 @@ func init() {
 	createCmd.Flags().String("key", "", "Anthropic API key (or set ANTHROPIC_API_KEY)")
 	createCmd.Flags().Bool("use-stored-key", false, "Use the key stored via `sandlock keys store`")
 	createCmd.Flags().String("repo", "", "Optional repo URL to shallow-clone into the sandbox")
+	createCmd.Flags().String("branch", "", "Branch to checkout after cloning; created locally if it does not exist")
 	createCmd.Flags().Bool("select-repo", false, "Interactively pick a GitHub repo to clone into the sandbox")
 	createCmd.Flags().BoolP("detach", "d", false, "Create sandbox but do not attach — print the sandbox ID and exit")
 	createCmd.Flags().Bool("rm", false, "Stop and delete the sandbox when the session ends")
@@ -39,6 +40,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	harness, _ := cmd.Flags().GetString("harness")
 	repo, _ := cmd.Flags().GetString("repo")
+	branch, _ := cmd.Flags().GetString("branch")
 	useStored, _ := cmd.Flags().GetBool("use-stored-key")
 	selectRepo, _ := cmd.Flags().GetBool("select-repo")
 	detach, _ := cmd.Flags().GetBool("detach")
@@ -69,6 +71,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		"harness":      harness,
 		"anthropicKey": key,
 		"repoUrl":      repo,
+		"branch":       branch,
 		"useStoredKey": useStored,
 		"githubToken":  githubToken(),
 		"noResume":     noResume,

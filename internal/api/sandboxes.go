@@ -37,6 +37,7 @@ type createSandboxRequest struct {
 	AnthropicKey string `json:"anthropicKey,omitempty"`
 	UseStoredKey bool   `json:"useStoredKey,omitempty"`
 	RepoURL      string `json:"repoUrl,omitempty"`
+	Branch       string `json:"branch,omitempty"`
 	GitHubToken  string `json:"githubToken,omitempty"`
 	NoResume     bool   `json:"noResume,omitempty"`
 }
@@ -77,8 +78,8 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 	if s.db != nil && req.RepoURL != "" && !req.NoResume {
 		var enc []byte
 		if err := s.db.QueryRow(ctx,
-			`SELECT snapshot FROM agent_snapshots WHERE user_id=$1 AND repo_url=$2`,
-			userID, req.RepoURL,
+			`SELECT snapshot FROM agent_snapshots WHERE user_id=$1 AND repo_url=$2 AND branch=$3`,
+			userID, req.RepoURL, req.Branch,
 		).Scan(&enc); err == nil && len(enc) > 0 {
 			if dec, err := auth.DecryptBytes(enc); err == nil {
 				sessionSnapshot = dec
@@ -97,16 +98,16 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 
 	// Send Claim to supervisor — key lives only in this in-memory call.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, sessionSnapshot, callbackURL); err != nil {
+	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, req.Branch, sessionSnapshot, callbackURL); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
 	}
 	if s.db != nil {
 		_, err = s.db.Exec(ctx,
-			`INSERT INTO sandboxes(id, user_id, harness, repo_url, status, provider_ref, expires_at)
-			 VALUES($1,$2,$3,$4,'running',$5,$6)`,
-			id, userID, req.Harness, req.RepoURL, claimRef,
+			`INSERT INTO sandboxes(id, user_id, harness, repo_url, branch, status, provider_ref, expires_at)
+			 VALUES($1,$2,$3,$4,$5,'running',$6,$7)`,
+			id, userID, req.Harness, req.RepoURL, req.Branch, claimRef,
 			time.Now().Add(3600*time.Second),
 		)
 		if err != nil {
@@ -236,12 +237,13 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
-func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL string, sessionSnapshot []byte, callbackURL string) error {
+func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL, branch string, sessionSnapshot []byte, callbackURL string) error {
 	body, _ := json.Marshal(proto.ClaimRequest{
 		AnthropicKey:    key,
 		GitHubToken:     githubToken,
 		Harness:         harness,
 		RepoURL:         repoURL,
+		Branch:          branch,
 		SessionSnapshot: sessionSnapshot,
 		CallbackURL:     callbackURL,
 	})
@@ -337,10 +339,10 @@ func (s *Server) stopSandbox(w http.ResponseWriter, r *http.Request) {
 	// Snapshot Claude Code session state before pod teardown (non-fatal).
 	if s.db != nil && ref != "" {
 		if fqdn, err := s.sandboxFQDNFromClaimRef(r.Context(), ref); err == nil {
-			var repoURL string
-			s.db.QueryRow(r.Context(), `SELECT repo_url FROM sandboxes WHERE id=$1 AND user_id=$2`, id, userID).Scan(&repoURL)
+			var repoURL, branch string
+			s.db.QueryRow(r.Context(), `SELECT repo_url, branch FROM sandboxes WHERE id=$1 AND user_id=$2`, id, userID).Scan(&repoURL, &branch)
 			if repoURL != "" {
-				if err := s.snapshotSession(r.Context(), userID, repoURL, fqdn); err != nil {
+				if err := s.snapshotSession(r.Context(), userID, repoURL, branch, fqdn); err != nil {
 					log.Printf("stopSandbox: snapshot: %v (non-fatal)", err)
 				}
 			}
@@ -381,11 +383,11 @@ func (s *Server) pushSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userID, repoURL string
+	var userID, repoURL, branch string
 	if err := s.db.QueryRow(r.Context(),
-		`SELECT user_id, repo_url FROM sandboxes WHERE id=$1`,
+		`SELECT user_id, repo_url, branch FROM sandboxes WHERE id=$1`,
 		id,
-	).Scan(&userID, &repoURL); err != nil || repoURL == "" {
+	).Scan(&userID, &repoURL, &branch); err != nil || repoURL == "" {
 		log.Printf("pushSnapshot: sandbox %s not found or no repo_url: %v", id, err)
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -399,11 +401,11 @@ func (s *Server) pushSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = s.db.Exec(r.Context(),
-		`INSERT INTO agent_snapshots(user_id, repo_url, snapshot)
-		 VALUES($1, $2, $3)
-		 ON CONFLICT (user_id, repo_url)
+		`INSERT INTO agent_snapshots(user_id, repo_url, branch, snapshot)
+		 VALUES($1, $2, $3, $4)
+		 ON CONFLICT (user_id, repo_url, branch)
 		 DO UPDATE SET snapshot=EXCLUDED.snapshot, snapshot_at=NOW()`,
-		userID, repoURL, enc,
+		userID, repoURL, branch, enc,
 	)
 	if err != nil {
 		log.Printf("pushSnapshot: db upsert: %v", err)
@@ -415,7 +417,7 @@ func (s *Server) pushSnapshot(w http.ResponseWriter, r *http.Request) {
 
 // snapshotSession fetches the Claude Code session state from a live pod,
 // encrypts it, and upserts it into agent_snapshots.
-func (s *Server) snapshotSession(ctx context.Context, userID, repoURL, fqdn string) error {
+func (s *Server) snapshotSession(ctx context.Context, userID, repoURL, branch, fqdn string) error {
 	snapshotCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -449,11 +451,11 @@ func (s *Server) snapshotSession(ctx context.Context, userID, repoURL, fqdn stri
 	}
 
 	_, err = s.db.Exec(ctx,
-		`INSERT INTO agent_snapshots(user_id, repo_url, snapshot)
-		 VALUES($1, $2, $3)
-		 ON CONFLICT (user_id, repo_url)
+		`INSERT INTO agent_snapshots(user_id, repo_url, branch, snapshot)
+		 VALUES($1, $2, $3, $4)
+		 ON CONFLICT (user_id, repo_url, branch)
 		 DO UPDATE SET snapshot=EXCLUDED.snapshot, snapshot_at=NOW()`,
-		userID, repoURL, enc,
+		userID, repoURL, branch, enc,
 	)
 	return err
 }

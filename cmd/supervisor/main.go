@@ -331,6 +331,27 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 		clone.Stderr = os.Stderr
 		if err := clone.Run(); err != nil {
 			log.Printf("clone %s: %v (continuing without repo)", req.RepoURL, err)
+		} else if req.Branch != "" {
+			runGit := func(args ...string) error {
+				cmd := exec.Command("git", args...)
+				cmd.Dir = workDir
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				return cmd.Run()
+			}
+			// Try direct checkout first (branch may already be the default).
+			if err := runGit("checkout", req.Branch); err != nil {
+				// Try fetching from remote, then checking out.
+				if ferr := runGit("fetch", "origin", req.Branch); ferr == nil {
+					err = runGit("checkout", req.Branch)
+				}
+				// If still not available, create the branch locally.
+				if err != nil {
+					if err = runGit("checkout", "-b", req.Branch); err != nil {
+						log.Printf("checkout branch %s: %v (continuing on default branch)", req.Branch, err)
+					}
+				}
+			}
 		}
 	}
 

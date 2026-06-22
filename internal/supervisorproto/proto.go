@@ -9,6 +9,7 @@ type ClaimRequest struct {
 	AnthropicKey    string `json:"anthropicKey"`
 	Harness         string `json:"harness"`
 	RepoURL         string `json:"repoUrl,omitempty"`
+	Branch          string `json:"branch,omitempty"`
 	GitHubToken     string `json:"githubToken,omitempty"`
 	// SessionSnapshot is a gzip+tar of ~/.claude/ from a prior sandbox.
 	// When non-nil the supervisor restores it before launching the harness
