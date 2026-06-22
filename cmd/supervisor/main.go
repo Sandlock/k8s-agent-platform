@@ -322,16 +322,28 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	if req.RepoURL != "" {
 		var clone *exec.Cmd
 		if strings.Contains(req.RepoURL, "github.com") && req.GitHubToken != "" {
-			clone = exec.Command("gh", "repo", "clone", req.RepoURL, workDir, "--", "--depth=1")
+			args := []string{"repo", "clone", req.RepoURL, workDir, "--"}
+			args = append(args, "--depth=1")
+			if req.Branch != "" {
+				args = append(args, "--branch="+req.Branch)
+			}
+			clone = exec.Command("gh", args...)
 			clone.Env = append(os.Environ(), "GITHUB_TOKEN="+req.GitHubToken)
 		} else {
-			clone = exec.Command("git", "clone", "--depth=1", req.RepoURL, workDir)
+			args := []string{"clone", "--depth=1"}
+			if req.Branch != "" {
+				args = append(args, "--branch="+req.Branch)
+			}
+			args = append(args, req.RepoURL, workDir)
+			clone = exec.Command("git", args...)
 		}
 		clone.Stdout = os.Stdout
 		clone.Stderr = os.Stderr
 		if err := clone.Run(); err != nil {
 			log.Printf("clone %s: %v (continuing without repo)", req.RepoURL, err)
 		} else if req.Branch != "" {
+			// Verify we landed on the right branch; the --branch flag should
+			// handle this, but fall back for edge cases (e.g. branch == default).
 			runGit := func(args ...string) error {
 				cmd := exec.Command("git", args...)
 				cmd.Dir = workDir
@@ -339,17 +351,14 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 				cmd.Stderr = os.Stderr
 				return cmd.Run()
 			}
-			// Try direct checkout first (branch may already be the default).
 			if err := runGit("checkout", req.Branch); err != nil {
-				// Try fetching from remote, then checking out.
-				if ferr := runGit("fetch", "origin", req.Branch); ferr == nil {
-					err = runGit("checkout", req.Branch)
-				}
-				// If still not available, create the branch locally.
-				if err != nil {
+				// fetch with explicit refspec so origin/<branch> tracking ref is created.
+				if ferr := runGit("fetch", "origin", req.Branch+":"+req.Branch); ferr != nil {
 					if err = runGit("checkout", "-b", req.Branch); err != nil {
 						log.Printf("checkout branch %s: %v (continuing on default branch)", req.Branch, err)
 					}
+				} else if err = runGit("checkout", req.Branch); err != nil {
+					log.Printf("checkout branch %s: %v (continuing on default branch)", req.Branch, err)
 				}
 			}
 		}
