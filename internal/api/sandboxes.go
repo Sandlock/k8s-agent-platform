@@ -91,6 +91,23 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Load user's skills so they are available in every sandbox session.
+	var skills []proto.Skill
+	if s.db != nil {
+		rows, err := s.db.Query(ctx,
+			`SELECT name, content FROM user_skills WHERE user_id=$1 ORDER BY name`,
+			userID)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var sk proto.Skill
+				if err := rows.Scan(&sk.Name, &sk.Content); err == nil {
+					skills = append(skills, sk)
+				}
+			}
+		}
+	}
+
 	// Build the callback URL so the supervisor can push the snapshot on harness exit.
 	callbackURL := ""
 	if s.selfURL != "" {
@@ -99,7 +116,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 
 	// Send Claim to supervisor — key lives only in this in-memory call.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, req.Branch, sessionSnapshot, callbackURL); err != nil {
+	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, req.Branch, sessionSnapshot, callbackURL, skills); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
@@ -238,7 +255,7 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
-func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL, branch string, sessionSnapshot []byte, callbackURL string) error {
+func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL, branch string, sessionSnapshot []byte, callbackURL string, skills []proto.Skill) error {
 	body, _ := json.Marshal(proto.ClaimRequest{
 		AnthropicKey:    key,
 		GitHubToken:     githubToken,
@@ -247,6 +264,7 @@ func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoUR
 		Branch:          branch,
 		SessionSnapshot: sessionSnapshot,
 		CallbackURL:     callbackURL,
+		Skills:          skills,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {

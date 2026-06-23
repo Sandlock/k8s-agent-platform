@@ -75,6 +75,10 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/v1/keys", s.storeKey)
 		r.Delete("/v1/keys", s.deleteKey)
 
+		r.Get("/v1/skills", s.listSkills)
+		r.Put("/v1/skills/{name}", s.putSkill)
+		r.Delete("/v1/skills/{name}", s.deleteSkill)
+
 		r.Post("/v1/sandboxes", s.createSandbox)
 		r.Get("/v1/sandboxes", s.listSandboxes)
 		r.Get("/v1/sandboxes/{id}", s.getSandbox)
