@@ -46,18 +46,19 @@ sandlock list
 ### Output
 
 ```
-ID                                    HARNESS      STATUS   CREATED
-7f3a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c  claude-code  running  2026-06-22T13:24:05Z
-a1b2c3d4-e5f6-7890-abcd-ef1234567890  claude-code  running  2026-06-22T11:00:00Z
+ID                                     STATUS    REPO                          BRANCH   CREATED
+7f3a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c  running   github.com/my-org/my-repo     main     2026-06-22 13:24:05
+a1b2c3d4-e5f6-7890-abcd-ef1234567890  running   -                             -        2026-06-22 11:00:00
 ```
 
-Sandboxes with `status = 'gone'` are not shown.
+Sandboxes with `status = 'gone'` are not shown. `REPO` and `BRANCH` show `-` for sandboxes created without a repository.
 
 ### Columns
 
 | Column | Description |
 |---|---|
 | `ID` | Sandbox UUID (use with `sandlock attach` or `sandlock stop`) |
-| `HARNESS` | Agent harness running in the pod (e.g. `claude-code`) |
 | `STATUS` | Current status: `running`, `failed` |
-| `CREATED` | RFC3339 creation timestamp |
+| `REPO` | Git repository URL the sandbox was cloned from, or `-` if none |
+| `BRANCH` | Branch checked out inside the pod, or `-` if none |
+| `CREATED` | Creation timestamp |

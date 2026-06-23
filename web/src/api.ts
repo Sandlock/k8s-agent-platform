@@ -85,6 +85,8 @@ export interface Sandbox {
   status: string
   providerRef: string
   createdAt: string
+  repoUrl?: string
+  branch?: string
 }
 
 export interface Skill {

@@ -50,6 +50,8 @@ func runList(cmd *cobra.Command, args []string) error {
 		ID        string    `json:"id"`
 		Harness   string    `json:"harness"`
 		Status    string    `json:"status"`
+		RepoURL   string    `json:"repoUrl"`
+		Branch    string    `json:"branch"`
 		CreatedAt time.Time `json:"createdAt"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&sandboxes); err != nil {
@@ -62,9 +64,17 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "ID\tHARNESS\tSTATUS\tCREATED")
+	fmt.Fprintln(w, "ID\tSTATUS\tREPO\tBRANCH\tCREATED")
 	for _, sb := range sandboxes {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sb.ID, sb.Harness, sb.Status, sb.CreatedAt.Format(time.DateTime))
+		repo := sb.RepoURL
+		if repo == "" {
+			repo = "-"
+		}
+		branch := sb.Branch
+		if branch == "" {
+			branch = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", sb.ID, sb.Status, repo, branch, sb.CreatedAt.Format(time.DateTime))
 	}
 	w.Flush()
 	return nil
