@@ -80,12 +80,26 @@ List sandboxes owned by the authenticated user.
     "harness": "claude-code",
     "status": "running",
     "providerRef": "claim/sandboxes/sc-abc123",
-    "createdAt": "2026-06-22T13:24:05Z"
+    "createdAt": "2026-06-22T13:24:05Z",
+    "repoUrl": "https://github.com/my-org/my-repo",
+    "branch": "main"
   }
 ]
 ```
 
+`repoUrl` and `branch` are omitted from the response when the sandbox was created without a repository.
+
 Sandboxes with `status = 'gone'` are excluded.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Sandbox identifier. |
+| `harness` | string | Agent harness running in the pod. |
+| `status` | string | Current status: `running` or `failed`. |
+| `providerRef` | string | Internal Kubernetes claim reference. |
+| `createdAt` | timestamp | When the sandbox was created. |
+| `repoUrl` | string | Git repository URL (omitted if no repo was cloned). |
+| `branch` | string | Branch checked out inside the pod (omitted if no repo was cloned). |
 
 ---
 
