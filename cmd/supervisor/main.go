@@ -478,7 +478,10 @@ func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
 	case "claude-code":
 		base := "claude --dangerously-skip-permissions"
 		if len(req.SessionSnapshot) > 0 {
-			base += " --continue"
+			// --continue exits with a non-zero code when no prior conversation
+			// exists in the restored snapshot. Fall back to a fresh start so the
+			// session is not lost on the very first reconnect.
+			base = "claude --dangerously-skip-permissions --continue || claude --dangerously-skip-permissions"
 		}
 		cmd = exec.Command("/bin/sh", "-c", base)
 	default:
@@ -512,9 +515,9 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Wait up to 10s for the PTY to be ready.
+	// Wait up to 60s for the PTY to be ready (repo clone can take >10s).
 	var ptmx *os.File
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 600; i++ {
 		s.mu.Lock()
 		ptmx = s.ptmx
 		s.mu.Unlock()
