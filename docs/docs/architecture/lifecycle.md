@@ -77,7 +77,7 @@ When `sandlock create` is called with a `repo_url` and `branch`:
 2. If found, the snapshot bytes are decrypted with `AES-256-GCM.Open(MASTER_KEY, stored_bytes)`
 3. The decrypted archive is included in the claim request to the supervisor
 4. The supervisor extracts it to `~/` before launching Claude Code
-5. Claude Code is started with `--continue` to resume the conversation
+5. Claude Code is started with `--continue || claude` — if `--continue` exits non-zero because the restored snapshot contains no prior conversation (e.g. the snapshot only has config files), the supervisor falls back to a fresh start automatically
 
 ### Bypassing restoration
 
@@ -90,6 +90,29 @@ Snapshots are keyed on `(user_id, repo_url, branch)`. This means:
 - Different users have separate snapshots for the same repo
 - Different branches of the same repo have separate snapshots
 - Only one snapshot per `(user, repo, branch)` is kept — the most recent overwrites the previous
+
+---
+
+## Skills injection
+
+When the supervisor receives a claim with a non-empty `skills` array, it writes each entry to `/home/ubuntu/.claude/commands/<name>.md` before starting Claude Code. This makes every stored skill available as a `/<name>` slash command for the duration of the session.
+
+Skills are fetched fresh from the database at claim time, so any skills you add or update via `sandlock skills put` take effect on the next sandbox you create.
+
+---
+
+## Sandbox image capabilities
+
+The sandbox container image (`ghcr.io/sandlock/sandlock-supervisor`) runs as the `ubuntu` user (uid 1000, non-root). The following capabilities are available inside a session:
+
+| Tool | Notes |
+|---|---|
+| `git` | Pre-installed |
+| `gh` (GitHub CLI) | Pre-installed |
+| `node` / `npm` | Node.js LTS pre-installed |
+| `sudo apt` / `sudo apt-get` | Passwordless sudo for `apt`, `apt-get`, and `dpkg` — allows Claude Code to install additional system packages at runtime |
+
+The `sudo` rule is scoped to package management only (`/usr/bin/apt-get`, `/usr/bin/apt`, `/usr/bin/dpkg`). General root access is not granted.
 
 ---
 
