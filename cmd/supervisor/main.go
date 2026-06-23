@@ -492,6 +492,11 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
+	// Use a background context — r.Context() may be cancelled by the HTTP server
+	// immediately after the 101 upgrade is written, killing all reads/writes.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Wait up to 10s for the PTY to be ready.
 	var ptmx *os.File
 	for i := 0; i < 100; i++ {
@@ -502,7 +507,7 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -511,9 +516,6 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		conn.Close(websocket.StatusNormalClosure, "not yet claimed")
 		return
 	}
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
 
 	// Subscribe before replaying so we don't miss live output between the two.
 	ch := s.bcast.subscribe()
