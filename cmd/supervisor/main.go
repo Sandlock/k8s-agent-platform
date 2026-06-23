@@ -319,6 +319,21 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 		}
 	}
 
+	if len(req.Skills) > 0 {
+		commandsDir := "/home/ubuntu/.claude/commands"
+		if err := os.MkdirAll(commandsDir, 0700); err != nil {
+			log.Printf("warning: create commands dir: %v", err)
+		} else {
+			for _, skill := range req.Skills {
+				p := filepath.Join(commandsDir, skill.Name+".md")
+				if err := os.WriteFile(p, []byte(skill.Content), 0600); err != nil {
+					log.Printf("warning: write skill %q: %v", skill.Name, err)
+				}
+			}
+			log.Printf("installed %d user skill(s)", len(req.Skills))
+		}
+	}
+
 	if req.RepoURL != "" {
 		log.Printf("cloning %s branch=%q", req.RepoURL, req.Branch)
 		makeClone := func(withBranch bool) *exec.Cmd {

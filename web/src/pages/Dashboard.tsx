@@ -3,8 +3,9 @@ import { api, Sandbox } from '../api'
 import Terminal from '../components/Terminal'
 import CreateSandbox from '../components/CreateSandbox'
 import Users from './Users'
+import Skills from './Skills'
 
-type Tab = 'sandboxes' | 'users'
+type Tab = 'sandboxes' | 'skills' | 'users'
 
 interface Props {
   isAdmin: boolean
@@ -63,31 +64,31 @@ export default function Dashboard({ isAdmin, onLogout }: Props) {
         </div>
       </div>
 
-      {isAdmin && (
-        <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #30363d' }}>
-          {(['sandboxes', 'users'] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                background: 'none',
-                border: 'none',
-                borderBottom: tab === t ? '2px solid #58a6ff' : '2px solid transparent',
-                borderRadius: 0,
-                color: tab === t ? '#58a6ff' : '#8b949e',
-                padding: '8px 16px',
-                fontSize: 14,
-                cursor: 'pointer',
-              }}
-            >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #30363d' }}>
+        {(['sandboxes', 'skills', ...(isAdmin ? ['users'] : [])] as Tab[]).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              background: 'none',
+              border: 'none',
+              borderBottom: tab === t ? '2px solid #58a6ff' : '2px solid transparent',
+              borderRadius: 0,
+              color: tab === t ? '#58a6ff' : '#8b949e',
+              padding: '8px 16px',
+              fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >
+            {t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </div>
 
       {tab === 'users' ? (
         <Users />
+      ) : tab === 'skills' ? (
+        <Skills />
       ) : (
         <>
           {showCreate && (

@@ -62,6 +62,10 @@ export const api = {
   stopSandbox: (id: string) => req<void>('DELETE', `/v1/sandboxes/${id}`),
   storeKey: (anthropicKey: string) => req<{ hint: string }>('POST', '/v1/keys', { anthropicKey }),
 
+  listSkills: () => req<Skill[]>('GET', '/v1/skills'),
+  putSkill: (name: string, content: string) => req<{ id: string; name: string }>('PUT', `/v1/skills/${name}`, { content }),
+  deleteSkill: (name: string) => req<void>('DELETE', `/v1/skills/${name}`),
+
   listUsers: () => req<User[]>('GET', '/v1/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>
     req<{ userId: string }>('POST', '/v1/users', { username, password, isAdmin }),
@@ -80,6 +84,13 @@ export interface Sandbox {
   harness: string
   status: string
   providerRef: string
+  createdAt: string
+}
+
+export interface Skill {
+  id: string
+  name: string
+  content: string
   createdAt: string
 }
 
