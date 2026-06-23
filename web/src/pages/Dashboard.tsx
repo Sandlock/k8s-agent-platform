@@ -108,7 +108,12 @@ export default function Dashboard({ isAdmin, onLogout }: Props) {
                 <div key={sb.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ flex: 1 }}>
                     <code style={{ fontSize: 13 }}>{sb.id}</code>
-                    <div style={{ fontSize: 12, color: '#8b949e', marginTop: 2 }}>{sb.harness} · {sb.status}</div>
+                    <div style={{ fontSize: 12, color: '#8b949e', marginTop: 2 }}>
+                      {sb.harness} · {sb.status}
+                      {sb.repoUrl && (
+                        <> · <span title={sb.repoUrl}>{sb.repoUrl.replace(/^https?:\/\/(www\.)?github\.com\//, '')}</span>{sb.branch && <>:{sb.branch}</>}</>
+                      )}
+                    </div>
                   </div>
                   <button onClick={() => setActiveSandbox(sb.id)} disabled={sb.status !== 'running'}>Open</button>
                   <button className="danger" onClick={() => stop(sb.id)}>Stop</button>

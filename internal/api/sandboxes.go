@@ -286,7 +286,7 @@ func (s *Server) listSandboxes(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r.Context())
 	if s.db != nil {
 		rows, err := s.db.Query(r.Context(),
-			`SELECT id, harness, status, provider_ref, created_at FROM sandboxes WHERE user_id=$1 AND status != 'gone' ORDER BY created_at DESC`,
+			`SELECT id, harness, status, provider_ref, created_at, COALESCE(repo_url,''), COALESCE(branch,'') FROM sandboxes WHERE user_id=$1 AND status != 'gone' ORDER BY created_at DESC`,
 			userID)
 		if err != nil {
 			http.Error(w, "db error", http.StatusInternalServerError)
@@ -299,11 +299,13 @@ func (s *Server) listSandboxes(w http.ResponseWriter, r *http.Request) {
 			Status      string    `json:"status"`
 			ProviderRef string    `json:"providerRef"`
 			CreatedAt   time.Time `json:"createdAt"`
+			RepoURL     string    `json:"repoUrl,omitempty"`
+			Branch      string    `json:"branch,omitempty"`
 		}
 		var list []row
 		for rows.Next() {
 			var r row
-			rows.Scan(&r.ID, &r.Harness, &r.Status, &r.ProviderRef, &r.CreatedAt)
+			rows.Scan(&r.ID, &r.Harness, &r.Status, &r.ProviderRef, &r.CreatedAt, &r.RepoURL, &r.Branch)
 			list = append(list, r)
 		}
 		writeJSON(w, http.StatusOK, list)
@@ -563,12 +565,14 @@ func (s *Server) lookupSandbox(r *http.Request, id, userID string) (any, bool) {
 			Status      string    `json:"status"`
 			ProviderRef string    `json:"providerRef"`
 			CreatedAt   time.Time `json:"createdAt"`
+			RepoURL     string    `json:"repoUrl,omitempty"`
+			Branch      string    `json:"branch,omitempty"`
 		}
 		var row dbRow
 		err := s.db.QueryRow(r.Context(),
-			`SELECT id, harness, status, provider_ref, created_at FROM sandboxes WHERE id=$1 AND user_id=$2`,
+			`SELECT id, harness, status, provider_ref, created_at, COALESCE(repo_url,''), COALESCE(branch,'') FROM sandboxes WHERE id=$1 AND user_id=$2`,
 			id, userID,
-		).Scan(&row.ID, &row.Harness, &row.Status, &row.ProviderRef, &row.CreatedAt)
+		).Scan(&row.ID, &row.Harness, &row.Status, &row.ProviderRef, &row.CreatedAt, &row.RepoURL, &row.Branch)
 		if err != nil {
 			return nil, false
 		}
