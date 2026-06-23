@@ -490,15 +490,18 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 	}
 	defer client.CloseNow()
 
-	pod, _, err := websocket.Dial(r.Context(), podURL, nil)
+	// Use a background context for the pod connection — r.Context() may be
+	// cancelled by the HTTP server immediately after the 101 upgrade is written,
+	// which would kill the proxy before any data flows.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pod, _, err := websocket.Dial(ctx, podURL, nil)
 	if err != nil {
 		client.Close(websocket.StatusInternalError, "could not reach sandbox")
 		return
 	}
 	defer pod.CloseNow()
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
 
 	// pod → client: preserve message type so binary PTY output and text resize acks pass through.
 	go func() {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -60,7 +61,14 @@ func attach(id, server, token string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: hdr})
+	// Disable HTTP/2 — WebSocket upgrades require HTTP/1.1 and fail when the
+	// transport negotiates h2 via ALPN (server returns 426).
+	h1transport := &http.Transport{}
+	h1transport.TLSNextProto = map[string]func(authority string, c *tls.Conn) http.RoundTripper{}
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: hdr,
+		HTTPClient: &http.Client{Transport: h1transport},
+	})
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
@@ -94,6 +102,7 @@ func attach(id, server, token string) error {
 
 	detach := make(chan struct{})
 	done := make(chan struct{}, 1)
+	var closeReason string
 
 	// PTY output → local stdout.
 	go func() {
@@ -101,6 +110,7 @@ func attach(id, server, token string) error {
 		for {
 			_, msg, err := conn.Read(ctx)
 			if err != nil {
+				closeReason = err.Error()
 				return
 			}
 			os.Stdout.Write(msg) //nolint:errcheck
@@ -154,7 +164,12 @@ func attach(id, server, token string) error {
 
 	select {
 	case <-done:
-		// Pod side closed (harness exited).
+		term.Restore(fd, oldState)
+		if closeReason != "" {
+			fmt.Fprintf(os.Stderr, "\r\n[disconnected: %s]\r\n", closeReason)
+		} else {
+			fmt.Fprintf(os.Stderr, "\r\n[sandbox exited]\r\n")
+		}
 	case <-detach:
 		term.Restore(fd, oldState)
 		fmt.Fprintf(os.Stderr, "\r\n[detached — sandbox still running]\r\n")
