@@ -522,6 +522,12 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 	}
 	defer pod.CloseNow()
 
+	// The supervisor sends the full scrollback (up to 256 KB) as a single binary
+	// message on reconnect. Remove the default 32 KB read cap on both sides so
+	// large scrollback replays and future large outputs are not silently dropped.
+	pod.SetReadLimit(4 << 20)
+	client.SetReadLimit(4 << 20)
+
 	// pod → client: preserve message type so binary PTY output and text resize acks pass through.
 	go func() {
 		defer cancel()

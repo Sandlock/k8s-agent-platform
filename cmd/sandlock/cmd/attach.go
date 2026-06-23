@@ -74,6 +74,10 @@ func attach(id, server, token string) error {
 	}
 	defer conn.CloseNow()
 
+	// The server replays up to 256 KB of scrollback as a single binary message.
+	// Remove the default 32 KB read cap so large replays are not rejected.
+	conn.SetReadLimit(4 << 20)
+
 	fd := int(os.Stdin.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
