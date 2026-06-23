@@ -498,6 +498,7 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 
 	pod, _, err := websocket.Dial(ctx, podURL, nil)
 	if err != nil {
+		log.Printf("proxyWebSocket: dial %s: %v", podURL, err)
 		client.Close(websocket.StatusInternalError, "could not reach sandbox")
 		return
 	}
