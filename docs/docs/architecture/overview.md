@@ -97,6 +97,7 @@ Before calling the supervisor, the control plane:
 
 - Resolves the API key (`anthropicKey` > stored BYOK key > empty)
 - Queries `agent_snapshots` for a prior snapshot keyed on `(user_id, repo_url, branch)`. If one exists, it is decrypted and passed to the supervisor.
+- Queries `user_skills` for all skills belonging to the caller. These are included in the claim so the supervisor can install them before Claude Code starts.
 
 ### 4. Control plane → Supervisor (claim)
 
@@ -109,7 +110,10 @@ POST http://sb-warmpool-xyz.sandboxes.svc.cluster.local:8080/claim
   "repoUrl": "https://github.com/my-org/my-repo",
   "branch": "main",
   "sessionSnapshot": <gzip+tar bytes>,
-  "callbackUrl": "http://sandlock-controlplane.sandlock-system.svc:8090/v1/internal/snapshots/<id>"
+  "callbackUrl": "http://sandlock-controlplane.sandlock-system.svc:8090/v1/internal/snapshots/<id>",
+  "skills": [
+    { "name": "code-review", "content": "Review the staged diff..." }
+  ]
 }
 ```
 
@@ -120,14 +124,17 @@ The supervisor is single-use: it atomically sets a `claimed` flag and rejects an
 The supervisor:
 
 1. Writes the snapshot to `~/.claude/` (if present)
-2. Runs `git clone --depth=1 <repoUrl> /workspace`
-3. Checks out the branch:
+2. Writes each skill to `~/.claude/commands/<name>.md` (makes them available as `/<name>` in Claude Code)
+3. Runs `git clone --depth=1 <repoUrl> /workspace`
+4. Checks out the branch:
    - `git checkout <branch>`
    - If that fails: `git fetch origin <branch> && git checkout <branch>`
    - If that fails: `git checkout -b <branch>` (create locally)
-4. Builds the command: `claude --dangerously-skip-permissions [--continue]` (the `--continue` flag is added if a snapshot was provided)
-5. Starts Claude Code in a PTY with `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` set
-6. The PTY output is teed to a 256 KB scrollback ring buffer and broadcast to all connected WebSocket clients
+5. Builds the command:
+   - Without snapshot: `claude --dangerously-skip-permissions`
+   - With snapshot: `claude --dangerously-skip-permissions --continue || claude --dangerously-skip-permissions` (falls back to a fresh start if `--continue` finds no prior conversation in the restored snapshot)
+6. Starts Claude Code in a PTY with `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` set
+7. The PTY output is teed to a 256 KB scrollback ring buffer and broadcast to all connected WebSocket clients
 
 ### 6. Control plane responds to CLI
 

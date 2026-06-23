@@ -29,6 +29,7 @@ const sidebars = {
         'cli/auth',
         'cli/keys',
         'cli/github',
+        'cli/skills',
       ],
     },
     {
@@ -39,6 +40,7 @@ const sidebars = {
         'api/overview',
         'api/authentication',
         'api/sandboxes',
+        'api/skills',
         'api/keys',
         'api/users',
       ],
