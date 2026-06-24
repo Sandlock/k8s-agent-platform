@@ -397,7 +397,6 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 
 	harness := harnessCmd(req, workDir)
 	harness.Env = append(os.Environ(),
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOME=/home/ubuntu",
 	)
 	if req.AnthropicKey != "" {
