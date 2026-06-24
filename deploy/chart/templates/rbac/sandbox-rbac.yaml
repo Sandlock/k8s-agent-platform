@@ -42,10 +42,12 @@ roleRef:
 {{- if .Values.sandbox.rbac.existingRole.name }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: {{ default "RoleBinding" .Values.sandbox.rbac.existingRole.bindingKind }}
 metadata:
   name: {{ include "sandlock.fullname" . }}-sandbox-existing
+  {{- if ne (default "RoleBinding" .Values.sandbox.rbac.existingRole.bindingKind) "ClusterRoleBinding" }}
   namespace: {{ include "sandlock.sandboxNamespace" . }}
+  {{- end }}
   labels:
     {{- include "sandlock.labels" . | nindent 4 }}
 subjects:

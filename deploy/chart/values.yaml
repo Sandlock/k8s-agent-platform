@@ -148,6 +148,9 @@ sandbox:
       name: cluster-admin
       # "Role" or "ClusterRole"
       kind: ClusterRole
+      # "RoleBinding" (namespace-scoped) or "ClusterRoleBinding" (cluster-wide).
+      # Use ClusterRoleBinding when the role grants cluster-wide permissions.
+      bindingKind: ClusterRoleBinding
 
 # ── Isolation (M6) ────────────────────────────────────────────────────────────
 isolation:
