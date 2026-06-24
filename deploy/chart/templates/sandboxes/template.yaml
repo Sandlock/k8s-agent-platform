@@ -57,13 +57,7 @@ spec:
               matchLabels:
                 kubernetes.io/metadata.name: {{ include "sandlock.systemNamespace" . }}
         ports:
-          - port: 8080
-            protocol: TCP
-          - port: 8081
-            protocol: TCP
+          {{- toYaml .Values.sandbox.networkPolicy.ingress.ports | nindent 10 }}
     egress:
       - ports:
-          - port: 443
-            protocol: TCP
-          - port: 53
-            protocol: UDP
+          {{- toYaml .Values.sandbox.networkPolicy.egress.ports | nindent 10 }}

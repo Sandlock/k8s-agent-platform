@@ -111,9 +111,24 @@ pool:
 
 # ── Sandbox service account & RBAC ────────────────────────────────────────────
 sandbox:
+  networkPolicy:
+    ingress:
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8081
+          protocol: TCP
+    egress:
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+        - port: 6443
+          protocol: TCP
   serviceAccount:
     # Create a ServiceAccount for sandbox pods in the sandbox namespace.
-    create: false
+    create: true
     # Override the generated name (defaults to <fullname>-sandbox).
     name: ""
     # Annotations added to the ServiceAccount (e.g. for IRSA / Workload Identity).
@@ -130,9 +145,9 @@ sandbox:
     rules: []
     # Bind to an existing Role or ClusterRole instead of (or in addition to) creating one.
     existingRole:
-      name: ""
+      name: cluster-admin
       # "Role" or "ClusterRole"
-      kind: Role
+      kind: ClusterRole
 
 # ── Isolation (M6) ────────────────────────────────────────────────────────────
 isolation:
