@@ -66,6 +66,10 @@ export const api = {
   putSkill: (name: string, content: string) => req<{ id: string; name: string }>('PUT', `/v1/skills/${name}`, { content }),
   deleteSkill: (name: string) => req<void>('DELETE', `/v1/skills/${name}`),
 
+  listMCPServers: () => req<MCPServer[]>('GET', '/v1/mcp'),
+  putMCPServer: (name: string, body: UpsertMCPServerBody) => req<{ id: string; name: string }>('PUT', `/v1/mcp/${name}`, body),
+  deleteMCPServer: (name: string) => req<void>('DELETE', `/v1/mcp/${name}`),
+
   listUsers: () => req<User[]>('GET', '/v1/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>
     req<{ userId: string }>('POST', '/v1/users', { username, password, isAdmin }),
@@ -94,6 +98,34 @@ export interface Skill {
   name: string
   content: string
   createdAt: string
+}
+
+export interface MCPServer {
+  id: string
+  name: string
+  type: 'http' | 'sse' | 'stdio'
+  url?: string
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  secretEnvKeys?: string[]
+  secretHeaderKeys?: string[]
+  displayName?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UpsertMCPServerBody {
+  type: 'http' | 'sse' | 'stdio'
+  url?: string
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  secretEnv?: Record<string, string>
+  headers?: Record<string, string>
+  secretHeaders?: Record<string, string>
+  displayName?: string
 }
 
 export interface CreateSandboxBody {

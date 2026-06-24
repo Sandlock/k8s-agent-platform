@@ -319,6 +319,14 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 		}
 	}
 
+	if len(req.MCPServers) > 0 {
+		if err := writeMCPConfig("/home/ubuntu", req.MCPServers); err != nil {
+			log.Printf("warning: write MCP config: %v", err)
+		} else {
+			log.Printf("registered %d MCP server(s)", len(req.MCPServers))
+		}
+	}
+
 	if len(req.Skills) > 0 {
 		commandsDir := "/home/ubuntu/.claude/commands"
 		if err := os.MkdirAll(commandsDir, 0700); err != nil {
@@ -469,6 +477,49 @@ func pushSnapshotCallback(callbackURL string) {
 	}
 	resp.Body.Close()
 	log.Printf("pushSnapshot: saved (%d bytes, status %d)", size, resp.StatusCode)
+}
+
+// writeMCPConfig merges MCP server definitions into ~/.claude/settings.json.
+// It reads the existing file if present (from a restored snapshot) and replaces
+// only the mcpServers key, preserving all other user settings. Mode 0600 keeps
+// any decrypted credentials readable only by the owner.
+func writeMCPConfig(homeDir string, servers []proto.MCPServer) error {
+	settingsPath := filepath.Join(homeDir, ".claude", "settings.json")
+	existing := map[string]any{}
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		json.Unmarshal(data, &existing) //nolint:errcheck — tolerate parse errors
+	}
+
+	mcpMap := map[string]any{}
+	for _, srv := range servers {
+		entry := map[string]any{"type": string(srv.Type)}
+		switch srv.Type {
+		case proto.MCPTypeHTTP, proto.MCPTypeSSE:
+			entry["url"] = srv.URL
+			if len(srv.Headers) > 0 {
+				entry["headers"] = srv.Headers
+			}
+		case proto.MCPTypeStdio:
+			entry["command"] = srv.Command
+			if len(srv.Args) > 0 {
+				entry["args"] = srv.Args
+			}
+			if len(srv.Env) > 0 {
+				entry["env"] = srv.Env
+			}
+		}
+		mcpMap[srv.Name] = entry
+	}
+	existing["mcpServers"] = mcpMap
+
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(settingsPath, data, 0600)
 }
 
 func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {

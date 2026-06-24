@@ -9,6 +9,28 @@ type Skill struct {
 	Content string `json:"content"`
 }
 
+// MCPServerType describes how the MCP server is invoked.
+type MCPServerType string
+
+const (
+	MCPTypeHTTP  MCPServerType = "http"
+	MCPTypeSSE   MCPServerType = "sse"
+	MCPTypeStdio MCPServerType = "stdio"
+)
+
+// MCPServer describes one MCP server to register in Claude's settings.
+// Secrets are decrypted by the control plane before transmission and MUST NOT
+// be logged or persisted in the pod.
+type MCPServer struct {
+	Name    string            `json:"name"`
+	Type    MCPServerType     `json:"type"`
+	URL     string            `json:"url,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
 // ClaimRequest is sent by the control plane to start an agent session.
 // Keys MUST travel only over this in-memory channel and MUST NOT be
 // stored in any Kubernetes resource, log, or persistent store.
@@ -28,6 +50,9 @@ type ClaimRequest struct {
 	// Skills are user-defined command files written to ~/.claude/commands/
 	// before the harness starts.
 	Skills []Skill `json:"skills,omitempty"`
+	// MCPServers are registered in ~/.claude/settings.json before the harness
+	// starts. Secrets are already decrypted; never log or persist these values.
+	MCPServers []MCPServer `json:"mcpServers,omitempty"`
 }
 
 // ClaimResponse is returned by the supervisor after a successful claim.
