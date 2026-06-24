@@ -54,6 +54,7 @@ RUN mkdir /workspace && chown ubuntu:ubuntu /workspace
 # Drop to non-root after all installs are done.
 # Ubuntu 24.04 ships with an 'ubuntu' user at uid 1000.
 USER ubuntu
+ENV PATH="/home/ubuntu/.local/bin:/home/ubuntu/bin:/home/ubuntu/.cargo/bin:/home/ubuntu/go/bin:/usr/local/go/bin:/home/linuxbrew/.linuxbrew/bin:$PATH"
 WORKDIR /home/ubuntu
 
 EXPOSE 8080 8081
