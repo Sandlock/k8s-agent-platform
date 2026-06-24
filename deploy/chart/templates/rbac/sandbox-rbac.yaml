@@ -1,0 +1,59 @@
+{{- if .Values.sandbox.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "sandlock.sandboxServiceAccountName" . }}
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+  {{- with .Values.sandbox.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if .Values.sandbox.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sandlock.fullname" . }}-sandbox
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.sandbox.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sandlock.fullname" . }}-sandbox
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sandlock.sandboxServiceAccountName" . }}
+    namespace: {{ include "sandlock.sandboxNamespace" . }}
+roleRef:
+  kind: Role
+  name: {{ include "sandlock.fullname" . }}-sandbox
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
+{{- if .Values.sandbox.rbac.existingRole.name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sandlock.fullname" . }}-sandbox-existing
+  namespace: {{ include "sandlock.sandboxNamespace" . }}
+  labels:
+    {{- include "sandlock.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sandlock.sandboxServiceAccountName" . }}
+    namespace: {{ include "sandlock.sandboxNamespace" . }}
+roleRef:
+  kind: {{ .Values.sandbox.rbac.existingRole.kind }}
+  name: {{ .Values.sandbox.rbac.existingRole.name }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

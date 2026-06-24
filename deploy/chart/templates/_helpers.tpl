@@ -76,3 +76,14 @@ Sandbox namespace.
 {{- define "sandlock.sandboxNamespace" -}}
 {{ .Values.sandboxNamespace | default "sandboxes" }}
 {{- end }}
+
+{{/*
+ServiceAccount name for sandbox pods.
+*/}}
+{{- define "sandlock.sandboxServiceAccountName" -}}
+{{- if .Values.sandbox.serviceAccount.name -}}
+{{ .Values.sandbox.serviceAccount.name }}
+{{- else -}}
+{{ include "sandlock.fullname" . }}-sandbox
+{{- end -}}
+{{- end }}

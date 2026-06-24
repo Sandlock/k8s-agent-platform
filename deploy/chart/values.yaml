@@ -109,6 +109,31 @@ pool:
   maxTotal: 20
   podTtlSeconds: 3600
 
+# ── Sandbox service account & RBAC ────────────────────────────────────────────
+sandbox:
+  serviceAccount:
+    # Create a ServiceAccount for sandbox pods in the sandbox namespace.
+    create: false
+    # Override the generated name (defaults to <fullname>-sandbox).
+    name: ""
+    # Annotations added to the ServiceAccount (e.g. for IRSA / Workload Identity).
+    annotations: {}
+  rbac:
+    # Create a Role + RoleBinding in the sandbox namespace.
+    # Requires sandbox.serviceAccount.create=true or sandbox.serviceAccount.name set.
+    create: false
+    # Rules for the Role. Example:
+    # rules:
+    #   - apiGroups: [""]
+    #     resources: ["configmaps", "secrets"]
+    #     verbs: ["get", "list"]
+    rules: []
+    # Bind to an existing Role or ClusterRole instead of (or in addition to) creating one.
+    existingRole:
+      name: ""
+      # "Role" or "ClusterRole"
+      kind: Role
+
 # ── Isolation (M6) ────────────────────────────────────────────────────────────
 isolation:
   # Install the gVisor RuntimeClass.

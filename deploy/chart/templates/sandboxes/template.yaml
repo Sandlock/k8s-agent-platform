@@ -14,7 +14,11 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+      {{- if or .Values.sandbox.serviceAccount.create .Values.sandbox.serviceAccount.name }}
+      serviceAccountName: {{ include "sandlock.sandboxServiceAccountName" . }}
+      {{- else }}
       automountServiceAccountToken: false
+      {{- end }}
       containers:
         - name: supervisor
           image: {{ include "sandlock.supervisorImage" . }}
