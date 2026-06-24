@@ -479,28 +479,35 @@ func pushSnapshotCallback(callbackURL string) {
 	log.Printf("pushSnapshot: saved (%d bytes, status %d)", size, resp.StatusCode)
 }
 
-// writeMCPConfig merges MCP server definitions into ~/.claude/settings.json.
-// It reads the existing file if present (from a restored snapshot) and replaces
-// only the mcpServers key, preserving all other user settings. Mode 0600 keeps
-// any decrypted credentials readable only by the owner.
+// writeMCPConfig merges MCP server definitions into ~/.claude.json (user scope),
+// which is the file Claude Code reads for MCP servers. It reads the existing file
+// if present (from a restored snapshot) and replaces only the mcpServers key,
+// preserving all other settings. Mode 0600 keeps decrypted credentials owner-only.
 func writeMCPConfig(homeDir string, servers []proto.MCPServer) error {
-	settingsPath := filepath.Join(homeDir, ".claude", "settings.json")
+	claudePath := filepath.Join(homeDir, ".claude.json")
 	existing := map[string]any{}
-	if data, err := os.ReadFile(settingsPath); err == nil {
+	if data, err := os.ReadFile(claudePath); err == nil {
 		json.Unmarshal(data, &existing) //nolint:errcheck — tolerate parse errors
 	}
 
 	mcpMap := map[string]any{}
 	for _, srv := range servers {
-		entry := map[string]any{"type": string(srv.Type)}
+		var entry map[string]any
 		switch srv.Type {
 		case proto.MCPTypeHTTP, proto.MCPTypeSSE:
-			entry["url"] = srv.URL
+			entry = map[string]any{
+				"type": string(srv.Type),
+				"url":  srv.URL,
+			}
 			if len(srv.Headers) > 0 {
 				entry["headers"] = srv.Headers
 			}
 		case proto.MCPTypeStdio:
-			entry["command"] = srv.Command
+			// stdio entries use no "type" field; Claude Code infers the transport
+			// from the presence of "command".
+			entry = map[string]any{
+				"command": srv.Command,
+			}
 			if len(srv.Args) > 0 {
 				entry["args"] = srv.Args
 			}
@@ -508,7 +515,9 @@ func writeMCPConfig(homeDir string, servers []proto.MCPServer) error {
 				entry["env"] = srv.Env
 			}
 		}
-		mcpMap[srv.Name] = entry
+		if entry != nil {
+			mcpMap[srv.Name] = entry
+		}
 	}
 	existing["mcpServers"] = mcpMap
 
@@ -516,10 +525,7 @@ func writeMCPConfig(homeDir string, servers []proto.MCPServer) error {
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(settingsPath), 0700); err != nil {
-		return err
-	}
-	return os.WriteFile(settingsPath, data, 0600)
+	return os.WriteFile(claudePath, data, 0600)
 }
 
 func harnessCmd(req proto.ClaimRequest, workDir string) *exec.Cmd {
