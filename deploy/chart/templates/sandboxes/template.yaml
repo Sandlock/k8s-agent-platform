@@ -16,6 +16,7 @@ spec:
         fsGroup: 1000
       {{- if or .Values.sandbox.serviceAccount.create .Values.sandbox.serviceAccount.name }}
       serviceAccountName: {{ include "sandlock.sandboxServiceAccountName" . }}
+      automountServiceAccountToken: true
       {{- else }}
       automountServiceAccountToken: false
       {{- end }}
