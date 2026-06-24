@@ -136,7 +136,7 @@ sandbox:
   rbac:
     # Create a Role + RoleBinding in the sandbox namespace.
     # Requires sandbox.serviceAccount.create=true or sandbox.serviceAccount.name set.
-    create: false
+    create: true
     # Rules for the Role. Example:
     # rules:
     #   - apiGroups: [""]
