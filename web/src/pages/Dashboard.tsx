@@ -4,8 +4,9 @@ import Terminal from '../components/Terminal'
 import CreateSandbox from '../components/CreateSandbox'
 import Users from './Users'
 import Skills from './Skills'
+import MCPServers from './MCPServers'
 
-type Tab = 'sandboxes' | 'skills' | 'users'
+type Tab = 'sandboxes' | 'skills' | 'mcp' | 'users'
 
 interface Props {
   isAdmin: boolean
@@ -65,7 +66,7 @@ export default function Dashboard({ isAdmin, onLogout }: Props) {
       </div>
 
       <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #30363d' }}>
-        {(['sandboxes', 'skills', ...(isAdmin ? ['users'] : [])] as Tab[]).map(t => (
+        {(['sandboxes', 'skills', 'mcp', ...(isAdmin ? ['users'] : [])] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -80,7 +81,7 @@ export default function Dashboard({ isAdmin, onLogout }: Props) {
               cursor: 'pointer',
             }}
           >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'mcp' ? 'MCP Servers' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -89,6 +90,8 @@ export default function Dashboard({ isAdmin, onLogout }: Props) {
         <Users />
       ) : tab === 'skills' ? (
         <Skills />
+      ) : tab === 'mcp' ? (
+        <MCPServers />
       ) : (
         <>
           {showCreate && (

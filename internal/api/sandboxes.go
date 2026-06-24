@@ -108,6 +108,16 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Load user's MCP server configurations (with secrets decrypted).
+	var mcpServers []proto.MCPServer
+	if s.db != nil {
+		mcpServers, err = s.mcpServersForUser(ctx, userID)
+		if err != nil {
+			log.Printf("createSandbox: load MCP servers: %v (continuing without MCP)", err)
+			mcpServers = nil
+		}
+	}
+
 	// Build the callback URL so the supervisor can push the snapshot on harness exit.
 	callbackURL := ""
 	if s.selfURL != "" {
@@ -116,7 +126,7 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 
 	// Send Claim to supervisor — key lives only in this in-memory call.
 	supervisorURL := fmt.Sprintf("http://%s:8080/claim", sandboxFQDN)
-	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, req.Branch, sessionSnapshot, callbackURL, skills); err != nil {
+	if err := claimSupervisor(ctx, supervisorURL, apiKey, req.GitHubToken, req.Harness, req.RepoURL, req.Branch, sessionSnapshot, callbackURL, skills, mcpServers); err != nil {
 		s.destroyClaim(ctx, claimRef)
 		http.Error(w, "failed to reach supervisor", http.StatusBadGateway)
 		return
@@ -255,7 +265,7 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	return fmt.Sprintf("%s.%s.svc.cluster.local", sbName, ns), nil
 }
 
-func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL, branch string, sessionSnapshot []byte, callbackURL string, skills []proto.Skill) error {
+func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoURL, branch string, sessionSnapshot []byte, callbackURL string, skills []proto.Skill, mcpServers []proto.MCPServer) error {
 	body, _ := json.Marshal(proto.ClaimRequest{
 		AnthropicKey:    key,
 		GitHubToken:     githubToken,
@@ -265,6 +275,7 @@ func claimSupervisor(ctx context.Context, url, key, githubToken, harness, repoUR
 		SessionSnapshot: sessionSnapshot,
 		CallbackURL:     callbackURL,
 		Skills:          skills,
+		MCPServers:      mcpServers,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {

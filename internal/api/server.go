@@ -79,6 +79,10 @@ func (s *Server) Handler() http.Handler {
 		r.Put("/v1/skills/{name}", s.putSkill)
 		r.Delete("/v1/skills/{name}", s.deleteSkill)
 
+		r.Get("/v1/mcp", s.listMCPServers)
+		r.Put("/v1/mcp/{name}", s.putMCPServer)
+		r.Delete("/v1/mcp/{name}", s.deleteMCPServer)
+
 		r.Post("/v1/sandboxes", s.createSandbox)
 		r.Get("/v1/sandboxes", s.listSandboxes)
 		r.Get("/v1/sandboxes/{id}", s.getSandbox)
