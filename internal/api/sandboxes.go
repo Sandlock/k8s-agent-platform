@@ -19,7 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	agentv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
-	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
+	extensionsv1beta1 "sigs.k8s.io/agent-sandbox/extensions/api/v1beta1"
 )
 
 // sandboxRecord is the in-memory fallback used when DATABASE_URL is not set.
@@ -162,18 +162,16 @@ func (s *Server) createSandbox(w http.ResponseWriter, r *http.Request) {
 // claimFromPool creates a SandboxClaim and waits for agent-sandbox to assign a warm pod.
 // Returns the claim ref ("claim/<ns>/<name>") and the sandbox service FQDN.
 func (s *Server) claimFromPool(ctx context.Context, harness string, timeout time.Duration) (string, string, error) {
-	warmPool := extensionsv1alpha1.WarmPoolPolicyDefault
 	ttl := int32(10)
-	claim := &extensionsv1alpha1.SandboxClaim{
+	claim := &extensionsv1beta1.SandboxClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "sc-",
 			Namespace:    s.sandboxNS,
 		},
-		Spec: extensionsv1alpha1.SandboxClaimSpec{
-			TemplateRef: extensionsv1alpha1.SandboxTemplateRef{Name: harness},
-			WarmPool:    &warmPool,
-			Lifecycle: &extensionsv1alpha1.Lifecycle{
-				ShutdownPolicy:          extensionsv1alpha1.ShutdownPolicyDelete,
+		Spec: extensionsv1beta1.SandboxClaimSpec{
+			WarmPoolRef: extensionsv1beta1.SandboxWarmPoolRef{Name: harness},
+			Lifecycle: &extensionsv1beta1.Lifecycle{
+				ShutdownPolicy:          extensionsv1beta1.ShutdownPolicyDelete,
 				TTLSecondsAfterFinished: &ttl,
 			},
 		},
@@ -193,7 +191,7 @@ func (s *Server) claimFromPool(ctx context.Context, harness string, timeout time
 		case <-time.After(2 * time.Second):
 		}
 
-		var current extensionsv1alpha1.SandboxClaim
+		var current extensionsv1beta1.SandboxClaim
 		if err := s.k8s.Get(ctx, types.NamespacedName{Namespace: s.sandboxNS, Name: claim.Name}, &current); err != nil {
 			continue
 		}
@@ -226,7 +224,7 @@ func (s *Server) destroyClaim(ctx context.Context, ref string) {
 	if !ok {
 		return
 	}
-	claim := &extensionsv1alpha1.SandboxClaim{}
+	claim := &extensionsv1beta1.SandboxClaim{}
 	claim.Name = name
 	claim.Namespace = ns
 	_ = s.k8s.Delete(ctx, claim)
@@ -247,7 +245,7 @@ func (s *Server) sandboxFQDNFromClaimRef(ctx context.Context, ref string) (strin
 	if !ok {
 		return "", fmt.Errorf("invalid provider ref %q", ref)
 	}
-	var claim extensionsv1alpha1.SandboxClaim
+	var claim extensionsv1beta1.SandboxClaim
 	if err := s.k8s.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &claim); err != nil {
 		return "", fmt.Errorf("get SandboxClaim: %w", err)
 	}

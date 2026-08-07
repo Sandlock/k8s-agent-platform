@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	extensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
+	extensionsv1beta1 "sigs.k8s.io/agent-sandbox/extensions/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -54,7 +54,7 @@ func (s *Server) reconcileOnce(ctx context.Context) {
 	}
 
 	// Build a set of existing SandboxClaim names.
-	var claimList extensionsv1alpha1.SandboxClaimList
+	var claimList extensionsv1beta1.SandboxClaimList
 	if err := s.k8s.List(ctx, &claimList, &client.ListOptions{}); err != nil {
 		log.Printf("reconciler: list claims: %v", err)
 		return
