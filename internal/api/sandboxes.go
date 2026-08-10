@@ -545,6 +545,7 @@ func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, podURL s
 		for {
 			mt, msg, err := pod.Read(ctx)
 			if err != nil {
+				client.Close(websocket.StatusNormalClosure, "sandbox session ended")
 				return
 			}
 			if err := client.Write(ctx, mt, msg); err != nil {

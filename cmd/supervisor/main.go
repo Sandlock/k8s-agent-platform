@@ -85,6 +85,7 @@ func (s *scrollback) snapshot() []byte {
 type broadcaster struct {
 	mu      sync.Mutex
 	clients map[chan []byte]struct{}
+	closed  bool
 }
 
 func newBroadcaster() *broadcaster {
@@ -94,7 +95,11 @@ func newBroadcaster() *broadcaster {
 func (b *broadcaster) subscribe() chan []byte {
 	ch := make(chan []byte, 256)
 	b.mu.Lock()
-	b.clients[ch] = struct{}{}
+	if !b.closed {
+		b.clients[ch] = struct{}{}
+	} else {
+		close(ch)
+	}
 	b.mu.Unlock()
 	return ch
 }
@@ -114,6 +119,18 @@ func (b *broadcaster) send(p []byte) {
 		case ch <- cp:
 		default: // slow client — drop rather than block PTY reader
 		}
+	}
+	b.mu.Unlock()
+}
+
+func (b *broadcaster) closeAll() {
+	b.mu.Lock()
+	if !b.closed {
+		b.closed = true
+		for ch := range b.clients {
+			close(ch)
+		}
+		b.clients = make(map[chan []byte]struct{})
 	}
 	b.mu.Unlock()
 }
@@ -426,6 +443,7 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 	log.Printf("harness %q started (pid %d)", req.Harness, harness.Process.Pid)
 
 	// Single PTY reader: tee into scrollback and broadcast to all WS clients.
+	// closeAll() signals connected WebSocket handlers to send a clean close frame.
 	go func() {
 		buf := make([]byte, 32<<10)
 		for {
@@ -435,6 +453,7 @@ func (s *supervisor) launch(req proto.ClaimRequest) error {
 				s.bcast.send(buf[:n])
 			}
 			if err != nil {
+				s.bcast.closeAll()
 				return
 			}
 		}
@@ -628,6 +647,7 @@ func (s *supervisor) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 				return
 			case p, ok := <-ch:
 				if !ok {
+					conn.Close(websocket.StatusNormalClosure, "sandbox session ended")
 					return
 				}
 				if err := conn.Write(ctx, websocket.MessageBinary, p); err != nil {
