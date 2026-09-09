@@ -41,7 +41,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # Install claude globally as root so it lands in /usr/local/bin
-RUN npm install -g @anthropic-ai/claude-code mcp-atlassian
+RUN npm install -g @anthropic-ai/claude-code mcp-atlassian jsdom
 
 COPY --from=build /supervisor /supervisor
 RUN chmod +x /supervisor
